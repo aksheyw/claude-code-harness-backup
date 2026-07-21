@@ -4,18 +4,18 @@
 
 Please don't open a public issue for a security problem. Use GitHub's private vulnerability reporting on this repo, under the Security tab.
 
-If the problem is that this repo leaked a credential of yours or of mine, say so in the first line, because that's time-sensitive and I'll pick it up ahead of everything else.
+If the problem is that this repo leaked a credential of yours or of mine, say so in the first line, because that is time-sensitive and I will pick it up ahead of everything else.
 
 ## What this project touches, and why that matters
 
-This is mostly documentation, but it ships one script that reads your machine, so here's exactly what that script touches.
+This is mostly documentation, but it ships one script that reads your machine, so here is exactly what that script touches.
 
 `scripts/capture-old-laptop.sh`:
 
 - **Reads** your Claude Code configuration, your shell profiles, and your project folders' git status.
 - **Writes** a single output folder, by default `~/claude-migration/`.
 - **Never** edits or deletes anything in `~/.claude/`, and never pushes anywhere.
-- **Copies real credentials into that output folder on purpose.** Specifically `~/.claude.json`, which can hold tokens, and every `.env` file it finds. It does that so a migration doesn't silently lose them.
+- **Copies real credentials into that output folder on purpose.** Specifically `~/.claude.json`, which can hold tokens, and every `.env` file it finds. It does that so a migration does not silently lose them.
 
 It warns you and waits for you to confirm before it copies anything.
 
@@ -27,7 +27,7 @@ It warns you and waits for you to confirm before it copies anything.
   `~/claude-migration/`, which is outside the repo entirely. If you keep your home directory under version control,
   add `claude-migration/` to that ignore file yourself.
 
-The readable report inside that folder is meant to be safe to share, so it records credential **names** and **locations** and never values. If you ever find a real secret value in `report.md`, that's a bug and I want to hear about it.
+The readable report inside that folder is meant to be safe to share, so it records credential **names** and **locations** and never values. If you ever find a real secret value in `report.md`, that is a bug and I want to hear about it.
 
 ## Scope
 

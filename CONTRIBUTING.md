@@ -48,7 +48,7 @@ Some things that look like bugs are on purpose:
 1. Say which platform you tested on. If you can only do one of macOS and Linux, say which, and I'll cover the other.
 2. Keep the script and its copy in `GUIDE.md` in sync.
 3. Explain any term the first time it shows up. Someone who has never used Claude Code should still be able to follow the page they landed on.
-5. If your change touches what gets copied or what the report claims, include the before and after of the verification commands above.
+4. If your change touches what gets copied or what the report claims, include the before and after of the verification commands above.
 
 ## Things I would especially like
 

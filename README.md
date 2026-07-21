@@ -16,11 +16,11 @@ I ran the script against my own setup and it pulled across 27 rules, 304 skills,
 
 ## Why I built this
 
-All my projects are on GitHub, so I'd assumed I was covered. Then I thought properly about losing the laptop, and the projects turned out to be the one part that was fine. What had no backup anywhere was the harness itself: the rules I'd corrected into place over months, the skills, the subagents, the hooks. Everything that makes Claude Code work the way I work instead of the way it ships.
+All my projects are on GitHub, so I assumed I was covered. Then I thought properly about losing the laptop, and the projects turned out to be the one part that was fine. What had no backup anywhere was the harness itself: the rules I had corrected into place over months, the skills, the subagents, the hooks. Everything that makes Claude Code work the way I work instead of the way it ships.
 
 That's the part you can't reinstall. A new machine gives you a new Claude Code that knows nothing about you, and you teach it all of it again from scratch. I didn't want to spend a week of evenings rediscovering corrections I'd already made once.
 
-So I built the backup, and then it got uncomfortable for a different reason. Reviewing the design before writing any code turned up six ways a plain `cp -r` would have leaked a credential, including a skill that was quietly holding a live browser session. Then the first real run refused to continue: the secret scan found seven live credentials sitting in my own memory files, in a folder I'd gone through by hand the day before and passed as clean.
+So I built it, and the secrets turned out to be the harder half. Reviewing the design before writing any code turned up six ways a plain `cp -r` would have leaked a credential, including a skill that was quietly holding a live browser session. Then the first real run refused to continue: the secret scan found seven live credentials sitting in my own memory files, in a folder I had gone through by hand the day before and passed as clean.
 
 That's why this repo spends as much time on secrets as on copying. Backing up a harness means backing up the folder you've been most casual about pasting things into, and the naive version of this tool is a credential leak with a friendly name.
 
@@ -45,7 +45,7 @@ bash claude-code-harness-backup/scripts/capture-old-laptop.sh
 
 It doesn't touch your setup. The only thing it writes is its own output folder, and it never edits or deletes anything in `~/.claude/`, and never pushes anywhere. It tells you what to fix before you wipe. Then read [Part 2 of the guide](GUIDE.md#part-2-capture-the-old-machine).
 
-**The old machine is already gone.** Start at [Part 3](GUIDE.md#part-3-rebuild-on-the-new-machine) and work from whatever backup you've got. Some of it you won't get back, and the guide says which parts rather than pretending there's a trick.
+**The old machine is already gone.** Start at [Part 3](GUIDE.md#part-3-rebuild-on-the-new-machine) and work from whatever backup you've got. Some of it you won't get back, and the guide says which parts instead of pretending there's a trick.
 
 **You're setting up from scratch, or you want a better harness.** Skip the migration. [Part 5](GUIDE.md#part-5-the-layers-in-detail) builds the layers up in the order they become worth having, and [Part 9](GUIDE.md#part-9-principles-worth-stealing) is why it's shaped that way.
 
@@ -61,7 +61,7 @@ wc -l ~/claude-migration/report.md
 
 # 2. The parts nobody can regenerate actually came across.
 #    Note: subagents live in a folder called `agents`.
-for d in rules skills agents commands scripts; do
+for d in rules skills agents commands scripts hooks memory; do
   printf '%-10s %s files\n' "$d" "$(find -L ~/claude-migration/claude/$d -type f 2>/dev/null | wc -l)"
 done
 
@@ -73,19 +73,25 @@ That last one has to print `0`. Your real secrets do get copied into the folder,
 
 ## What it looks like running
 
-The report opens with what it copied out of your harness, which is the part that has no other backup:
+This is the first table from a real run on my machine, with only the symlink target shortened:
 
 ```
-| Layer      | Path                | Count     |
-|------------|---------------------|-----------|
-| rules      | ~/.claude/rules     | 27 files  |
-| skills     | ~/.claude/skills    | 304 dirs  |
-| agents     | ~/.claude/agents    | 93 files  |
-| commands   | ~/.claude/commands  | 114 files |
-| scripts    | ~/.claude/scripts   | 58 hooks  |
+| Layer | Path | Count |
+|---|---|---|
+| agents | `~/.claude/agents` | 93 files |
+| commands | `~/.claude/commands` | 114 files |
+| rules | `~/.claude/rules` | 27 files |
+| skills | `~/.claude/skills` (symlink -> <elsewhere>) | 2142 files |
+| hooks | `~/.claude/hooks` | 1 files |
+| scripts | `~/.claude/scripts` | 214 files |
+| memory | `~/.claude/memory` | 19 files |
+| plugins | `~/.claude/plugins` | 40840 files |
+| scheduled-tasks | `~/.claude/scheduled-tasks` | 16 files |
 ```
 
-Then it checks your projects, which is a second safety net rather than the main event. Most people's code is already on a remote, but the report tells you where that assumption is wrong:
+Two things worth reading off that. `skills` is a symlink pointing outside `~/.claude/`, which a naive copy would preserve as a dead link on the new machine, so the script follows it. And `plugins` is 40,840 files, which is why the script does not copy them: they reinstall from a marketplace, and carrying them would make the output enormous for no gain.
+
+Then it checks your projects. That is a second safety net rather than the main event, since most people's code is already on a remote, but the report tells you where that assumption is wrong:
 
 ```
 | Project        | Git?        | Remote                          | Unpushed        | Uncommitted |
@@ -96,11 +102,11 @@ Then it checks your projects, which is a second safety net rather than the main 
 | scratch        | yes (main)  | **NONE**                        | **no upstream** | 3           |
 ```
 
-Three of those four rows are a problem. `design-notes` has no version history at all, `mobile-app` has 6 commits and 9 changed files that exist nowhere else, and `scratch` has history but nowhere to push it. Only the first row is safe.
+That one is illustrative, not a real run. Three of those four rows are a problem. `design-notes` has no version history at all, `mobile-app` has 6 commits and 9 changed files that exist nowhere else, and `scratch` has history but nowhere to push it. Only the first row is safe.
 
 ## When to use this, and when not to
 
-**Use it if** you're changing machines, or you've built up a real amount of custom setup, or you want a backup you can actually repeat, rather than hoping a cloud sync picked the folder up.
+**Use it if** you're changing machines, or you've built up a real amount of custom setup, or you want a backup you can actually repeat instead of hoping a cloud sync picked the folder up.
 
 **Don't bother if** you installed Claude Code last week and haven't customised anything. There's nothing to lose yet. Come back when there is.
 
@@ -151,7 +157,7 @@ If you're rebuilding a machine from scratch, those are a faster starting point t
 
 ## Credits
 
-A few things I took from other people. Keeping a secret out of the first commit rather than scrubbing it later is standard practice, and [gitleaks](https://github.com/gitleaks/gitleaks) is what the guide points you at for the actual scanning, because it does that far better than the grep patterns I'd have written. The idea of a project wiki that compounds across sessions instead of being rewritten each time comes from [Andrej Karpathy's LLM wiki pattern](https://gist.github.com/karpathy).
+A few things I took from other people. Keeping a secret out of the first commit rather than scrubbing it later is standard practice, and [gitleaks](https://github.com/gitleaks/gitleaks) is what the guide points you at for the actual scanning, because it does that far better than the grep patterns I'd have written. The idea of a project wiki that compounds across sessions instead of being rewritten each time comes from [Andrej Karpathy's LLM wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f).
 
 ## License
 
