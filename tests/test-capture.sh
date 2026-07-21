@@ -17,7 +17,8 @@ bad()  { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
 check(){ if [ "$1" = "$2" ]; then ok "$3"; else bad "$3 (expected '$2', got '$1')"; fi; }
 
 # ---- build a synthetic machine ------------------------------------------
-FAKE=$(mktemp -d)
+FAKE=$(mktemp -d) || { echo "cannot create temp dir"; exit 1; }
+[ -n "$FAKE" ] && [ -d "$FAKE" ] || { echo "temp dir invalid"; exit 1; }
 trap 'rm -rf "$FAKE"' EXIT
 
 mkdir -p "$FAKE/home/.claude"/{rules,agents,commands,scripts/hooks,memory}
@@ -30,10 +31,11 @@ echo "a memory"                > "$FAKE/home/.claude/memory/MEMORY.md"
 echo "echo hi"                 > "$FAKE/home/.claude/scripts/hooks/check.sh"
 printf '{"hooks":{},"enabledPlugins":{}}' > "$FAKE/home/.claude/settings.json"
 
-# Credential-shaped FIXTURES, assembled at runtime from harmless parts so this
-# test file itself contains no string that looks like a real key. A secret
-# scanner reading this repo should find nothing here, and it does not.
-PRE="sk"; MID="live"
+# Credential FIXTURES. Deliberately NOT shaped like any real provider's key:
+# the assertion below is "does the report echo this VALUE back", which does not
+# depend on the value looking real. Using a provider-shaped string here would
+# put fake keys in /tmp for any scanner watching a CI runner to trip over.
+PRE="notarealkey"; MID="fixture"
 FAKE_A="${PRE}-${MID}-abcdefghijklmnopqrstuvwxyz0123456789"
 FAKE_B="${PRE}-${MID}-zyxwvutsrqponmlkjihgfedcba9876543210"
 FAKE_C="${PRE}-${MID}-000111222333444555666777888999aaabbb"
@@ -49,6 +51,7 @@ mkdir -p "$FAKE/proj/clean-repo" "$FAKE/proj/no-git"
 ( cd "$FAKE/proj/clean-repo" && git init -q . \
   && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init \
   && git remote add origin https://example.com/x.git ) >/dev/null 2>&1
+[ -d "$FAKE/proj/clean-repo/.git" ] || { echo "could not build the synthetic git repo (is git installed?)"; exit 1; }
 echo "untracked work" > "$FAKE/proj/no-git/notes.md"
 printf 'SECRET_VALUE=%s\n' "$FAKE_C" > "$FAKE/proj/clean-repo/.env"
 
@@ -63,7 +66,12 @@ check "$RC" "0" "exits cleanly"
 [ -f "$OUT/report.md" ] && ok "writes a report" || bad "writes a report"
 
 # ---- 2. THE promise: no credential VALUE in the readable report ----------
-if grep -qE "${PRE}-${MID}-[A-Za-z0-9]{20,}" "$OUT/report.md" 2>/dev/null; then
+# Assert the report EXISTS first. Without this the grep below returns
+# non-zero on a missing file and the assertion passes vacuously, which is
+# the exact failure mode this whole file is meant to catch.
+if [ ! -s "$OUT/report.md" ]; then
+  bad "report contains no credential values (NO REPORT PRODUCED, cannot assert)"
+elif grep -qE "${PRE}-${MID}-[A-Za-z0-9]{20,}" "$OUT/report.md"; then
   bad "report contains no credential values"
 else
   ok "report contains no credential values"
@@ -75,6 +83,7 @@ grep -q 'DEMO_SERVICE_API_KEY' "$OUT/report.md" && ok "report names the credenti
 # ---- 3. the authored layers are actually COPIED, not just counted -------
 for d in rules agents commands skills memory; do
   n=$(find -L "$OUT/claude/$d" -type f 2>/dev/null | wc -l | tr -d ' ')
+  n=${n:-0}
   [ "$n" -ge 1 ] && ok "copies $d/ ($n)" || bad "copies $d/ (found $n)"
 done
 
