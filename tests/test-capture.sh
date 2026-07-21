@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-capture.sh — asserts the promises the README and SECURITY.md make
+# test-capture.sh: asserts the promises the README and SECURITY.md make
 # about scripts/capture-old-laptop.sh.
 #
 #   bash tests/test-capture.sh
