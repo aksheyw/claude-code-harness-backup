@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/aksheyw/claude-code-ship-gate/main/plugins/ship-gate/schema/shipgate.schema.json",
+  "_comment": "Docs + one bash script. tests = tests/test-capture.sh, which asserts the promises the README and SECURITY.md make about the script (no credential values in the report, authored layers actually copied, source setup never mutated, guide copy in sync). lint/typecheck/build disabled: bash and markdown, no configured linters. secretScan stays on.",
+  "mainBranch": "main",
+  "gates": {
+    "tests":      { "enabled": true,  "command": "bash tests/test-capture.sh" },
+    "lint":       { "enabled": false },
+    "typecheck":  { "enabled": false },
+    "build":      { "enabled": false },
+    "secretScan": { "enabled": true }
+  }
+}

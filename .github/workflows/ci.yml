@@ -10,9 +10,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history, so the secret scan below can walk every commit
+          # rather than a computed range.
+          fetch-depth: 0
 
       - name: Shell syntax
         run: bash -n scripts/capture-old-laptop.sh
+
+      - name: Tests
+        run: bash tests/test-capture.sh
 
       - name: Shellcheck
         run: |
@@ -45,9 +52,19 @@ jobs:
           echo "clean"
 
       - name: Secret scan
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Run gitleaks directly rather than via its action. The action
+          # computes a commit range of the form <commit>^..HEAD, which has no
+          # parent to resolve on a repository's first push and fails there for
+          # reasons unrelated to whether a secret exists.
+          VERSION=8.24.3
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /tmp gitleaks
+          echo "--- full history ---"
+          /tmp/gitleaks detect --redact --no-banner --exit-code 1
+          echo "--- working tree ---"
+          /tmp/gitleaks detect --no-git --redact --no-banner --exit-code 1
+          echo "clean"
 
       - name: The report must never contain a secret value
         run: |
