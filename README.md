@@ -16,11 +16,13 @@ I ran the script against my own setup and it pulled across 27 rules, 304 skills,
 
 ## Why I built this
 
-A friend was moving laptops and asked me what he needed to save, and I started reeling off folders before I realised I couldn't actually answer it, because the answer isn't one folder. So I went and looked at my own machine, which is where it got uncomfortable.
+All my projects are on GitHub, so I'd assumed I was covered. Then I thought properly about losing the laptop, and the projects turned out to be the one part that was fine. What had no backup anywhere was the harness itself: the rules I'd corrected into place over months, the skills, the subagents, the hooks. Everything that makes Claude Code work the way I work instead of the way it ships.
 
-One project had 11 commits I'd made and never pushed, plus 14 changed files on top. Another was 20 commits ahead of its remote. Four folders weren't git repos at all, so there was no history to lose because there had never been any. None of it announced itself. If I'd wiped the disk on a Friday I'd have found out the following month.
+That's the part you can't reinstall. A new machine gives you a new Claude Code that knows nothing about you, and you teach it all of it again from scratch. I didn't want to spend a week of evenings rediscovering corrections I'd already made once.
 
-That's the actual problem. Some of your setup comes back with one command. The rest dies with the disk, and in a file listing the two look identical. So the first thing this repo does is tell you which is which, before you wipe anything.
+So I built the backup, and then it got uncomfortable for a different reason. Reviewing the design before writing any code turned up six ways a plain `cp -r` would have leaked a credential, including a skill that was quietly holding a live browser session. Then the first real run refused to continue: the secret scan found seven live credentials sitting in my own memory files, in a folder I'd gone through by hand the day before and passed as clean.
+
+That's why this repo spends as much time on secrets as on copying. Backing up a harness means backing up the folder you've been most casual about pasting things into, and the naive version of this tool is a credential leak with a friendly name.
 
 ## What's in this repo
 
@@ -71,7 +73,19 @@ That last one has to print `0`. Your real secrets do get copied into the folder,
 
 ## What it looks like running
 
-The bit that matters most is the project table, because that's where the things you can't get back show up:
+The report opens with what it copied out of your harness, which is the part that has no other backup:
+
+```
+| Layer      | Path                | Count     |
+|------------|---------------------|-----------|
+| rules      | ~/.claude/rules     | 27 files  |
+| skills     | ~/.claude/skills    | 304 dirs  |
+| agents     | ~/.claude/agents    | 93 files  |
+| commands   | ~/.claude/commands  | 114 files |
+| scripts    | ~/.claude/scripts   | 58 hooks  |
+```
+
+Then it checks your projects, which is a second safety net rather than the main event. Most people's code is already on a remote, but the report tells you where that assumption is wrong:
 
 ```
 | Project        | Git?        | Remote                          | Unpushed        | Uncommitted |

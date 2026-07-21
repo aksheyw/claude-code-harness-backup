@@ -63,16 +63,22 @@ It is worth understanding as nine layers, because each one is backed up, broken,
 
 ### 2.1 What genuinely dies with the laptop
 
-Be clear-eyed about this. Most things are recoverable. These are not:
+Be clear-eyed about this. Most things are recoverable. These are not.
+
+**Start with the harness, because it is the reason this guide exists.** Your code is almost certainly on a remote already. The folder that makes Claude Code work the way *you* work is not, because none of it is version controlled by default:
+
+- **Everything you authored under `~/.claude/`**: rules, skills, subagents, commands, hook scripts. Nobody can regenerate these. They exist because you wrote them, usually one correction at a time over months.
+- **Your accumulated memory and standing context.** The most expensive thing here to rebuild, precisely because you cannot rebuild it deliberately. It was never written in one sitting.
+
+**Then the usual suspects**, which matter but are more widely understood:
 
 - **Project folders that were never git repos.** No remote, no history, no recovery.
-- **Committed work that was never pushed.** Living only on that disk.
-- **Uncommitted changes.** Same.
+- **Committed work that was never pushed**, and uncommitted changes. Living only on that disk.
 - **Locally-uploaded plugins.** Installed from a local file rather than a marketplace. The source exists nowhere else.
 - **Marketplaces registered from a local directory.** The registration points at a folder path on that machine.
-- **SSH keys, and anything in the login keychain.**
+- **SSH keys, and anything in your operating system's credential store.**
 - **`~/.claude.json`.** Holds MCP server registrations plus account identity.
-- **Anything in a `.env` file.** By design, these are gitignored, so your repos do not have them.
+- **Anything in a `.env` file.** By design these are gitignored, so your repos do not have them.
 
 **Sort every credential into one of two classes before you start.** This single distinction decides what you do with each one, and getting it wrong wastes hours:
 
