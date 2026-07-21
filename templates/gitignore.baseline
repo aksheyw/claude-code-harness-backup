@@ -1,0 +1,66 @@
+# A baseline .gitignore for any project a coding assistant works in.
+# Copy the parts you need. The two commented sections are the ones that
+# actually bite people, so read those before deleting anything.
+
+# Regenerable. Reinstall from a lockfile instead of committing.
+node_modules/
+.venv/
+venv/
+__pycache__/
+dist/
+build/
+.next/
+.turbo/
+coverage/
+*.log
+
+# Live session and credential state
+**/browser_profile/
+**/Cookies*
+*.sqlite*
+**/auth_info.json
+
+# Secrets. Never commit a real value.
+.env
+.env.*
+secrets*
+*.pem
+*.key
+id_rsa
+id_ed25519
+
+# Negations must come AFTER the rule they undo, because the last matching
+# rule wins. These two files are meant to be committed: they carry names
+# and instructions, never values.
+!.env.example
+!secrets.template.md
+
+# ── The trap that silently untracks your assistant's configuration ──
+# A bare `.claude/` line here would also ignore everything you authored
+# inside it, and a fresh clone would lose the lot with no warning. If you
+# want to ignore local state but keep the authored parts, ignore the
+# directory then negate each authored subdirectory, both the directory
+# itself and its contents:
+#
+# .claude/*
+# !.claude/agents/
+# !.claude/agents/**
+# !.claude/skills/
+# !.claude/skills/**
+# !.claude/commands/
+# !.claude/commands/**
+# !.claude/rules/
+# !.claude/rules/**
+# !.claude/wiki/
+# !.claude/wiki/**
+# !.claude/settings.json
+#
+# Verify with: git check-ignore -v .claude/agents/some-agent.md
+# It should print nothing.
+
+# Editor and OS detritus
+*.bak
+*.orig
+*~
+*.swp
+.DS_Store

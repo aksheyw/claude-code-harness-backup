@@ -1,0 +1,26 @@
+# This repo must never carry a real credential. See SECURITY.md.
+.env
+.env.*
+!.env.example
+secrets*
+!secrets.template.md
+*.pem
+*.key
+id_rsa
+id_ed25519
+
+# Output of the capture script. Contains live secrets by design.
+claude-migration/
+*.dmg
+
+# Editor and OS detritus
+*.bak
+*.orig
+*~
+*.swp
+.DS_Store
+
+# Dependencies and build output
+node_modules/
+dist/
+*.log

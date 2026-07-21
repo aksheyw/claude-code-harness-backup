@@ -1,0 +1,94 @@
+# CLAUDE.md, <Project>
+
+<!--
+  CLAUDE.md is the per-project instructions file that Claude Code reads at the
+  start of every session in this repository. Put standing context here: things
+  that are true across many sessions, not notes about today's task.
+
+  Keep it under about 200 lines. When a section wants to grow past a short
+  paragraph, move the depth into a document and leave a pointer. A long file
+  costs attention on every single session, including the ones where that
+  section is irrelevant.
+
+  Delete any heading you do not need. An empty section is worse than a missing
+  one, because it reads as an answer.
+-->
+
+## Project Overview
+
+One paragraph. What this is and who it is for.
+
+## Tech Stack
+
+The frameworks and services actually in use. Name the ones a newcomer would not guess.
+
+## Project Structure
+
+A short folder map. Only the directories someone needs to find their way.
+
+## Key Concepts
+
+Domain vocabulary. Any word this codebase uses in a specific way, defined in one line each. This section prevents more confusion than any other.
+
+## Data Schema
+
+Either the model itself if it is small, or a pointer to where it lives.
+
+## Environment Variables
+
+Which variables exist and what each is for. Never the values. Point at `.env.example`.
+
+## Authentication
+
+How a request proves who it is, and where that is enforced.
+
+## Testing
+
+The commands to run, and what level of coverage is expected before something counts as done.
+
+## MANDATORY: QA Before Claiming Done
+
+The hard gate. Spell out what has to be true before any work is reported as finished, in checkable terms.
+
+Passing unit tests is usually not sufficient on its own. If this project has a user interface, say that the actual journey has to be walked in a browser or on a device, because tests that pass while the real flow is broken is the most common way work gets reported as done when it is not.
+
+## Coding Conventions
+
+Only the ones that are not obvious from reading the code.
+
+## Document Ownership
+
+Name exactly one authoritative source per kind of fact, and have everything else cross-reference it.
+
+| Fact | Owned by |
+|---|---|
+| Architecture decisions | `DECISIONS.md` |
+| Test counts and history | `docs/testing.md` |
+| Roadmap | `ROADMAP.md` |
+
+Without this, the same number drifts across four files and nobody can tell which one is right.
+
+## Key Reference Documents
+
+A pointer list. What to read, and when it is worth reading.
+
+## What to Consult Before Making Changes
+
+The preflight. Which files to open before touching which areas.
+
+## Known Technical Debt
+
+The shortcuts currently in place, and the condition under which each stops being acceptable. A shortcut with a named trigger is a decision. Without one it is a landmine.
+
+## Context Budget
+
+Any guidance about what not to load. Useful in a large repository where the obvious approach reads far too much.
+
+## Self-Review Before Declaring Done
+
+Keep this last, deliberately. It is the final thing in context before the assistant reports back, which is exactly when it needs to be remembered.
+
+- [ ] Does this do what was actually asked, rather than what was convenient?
+- [ ] Has it been run, not just written?
+- [ ] Would the QA gate above pass right now?
+- [ ] Is anything claimed here unverified? Say so explicitly rather than implying it was checked.
