@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax
+        run: bash -n scripts/capture-old-laptop.sh
+
+      - name: Shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck -S warning scripts/capture-old-laptop.sh
+
+      - name: Script matches the copy embedded in GUIDE.md
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys
+          g = pathlib.Path("GUIDE.md").read_text()
+          s = pathlib.Path("scripts/capture-old-laptop.sh").read_text()
+          i = g.index("<summary><b>capture-old-laptop.sh</b>")
+          fo = g.index("```bash", i) + 8
+          fc = g.index("\n```\n", fo)
+          if g[fo:fc].strip() != s.strip():
+              sys.exit("GUIDE.md's embedded script has drifted from scripts/capture-old-laptop.sh")
+          print("in sync")
+          PY
+
+      - name: No em dashes in prose
+        run: |
+          # Build the character rather than writing it literally, so this
+          # check does not match its own source and fail every run.
+          EMDASH=$(printf '\xe2\x80\x94')
+          if grep -rn "$EMDASH" --include='*.md' --include='*.sh' .; then
+            echo "::error::em dashes found; house style is zero"
+            exit 1
+          fi
+          echo "clean"
+
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: The report must never contain a secret value
+        run: |
+          # Run the capture non-interactively against this runner, then assert
+          # the readable report has no credential-shaped strings in it. This is
+          # the one promise the README and SECURITY both make.
+          CH_YES=1 OUT=/tmp/ci-capture PROJ_ROOT="$GITHUB_WORKSPACE" bash scripts/capture-old-laptop.sh >/dev/null 2>&1 || true
+          if [ ! -f /tmp/ci-capture/report.md ]; then
+            echo "::error::capture produced no report"; exit 1
+          fi
+          if grep -qE 'sk-[A-Za-z0-9]{30,}|sk-ant-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|AIza[0-9A-Za-z_-]{30,}|AKIA[0-9A-Z]{16}' /tmp/ci-capture/report.md; then
+            echo "::error::report.md contains a credential-shaped string"; exit 1
+          fi
+          echo "report clean"

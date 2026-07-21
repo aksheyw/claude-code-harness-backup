@@ -18,7 +18,7 @@ I ran the script against my own setup and it pulled across 27 rules, 304 skills,
 
 A friend was moving laptops and asked me what he needed to save, and I started reeling off folders before I realised I couldn't actually answer it, because the answer isn't one folder. So I went and looked at my own machine, which is where it got uncomfortable.
 
-One project had 11 commits I'd made and never pushed, plus 14 changed files on top. Another was 20 commits ahead of its remote. Four folders weren't git repos at all, so there was no history to lose because there had never been any. None of that announced itself, and I'd been working in those folders that week. If I'd wiped the disk on a Friday I'd have found out the following month.
+One project had 11 commits I'd made and never pushed, plus 14 changed files on top. Another was 20 commits ahead of its remote. Four folders weren't git repos at all, so there was no history to lose because there had never been any. None of it announced itself. If I'd wiped the disk on a Friday I'd have found out the following month.
 
 That's the actual problem. Some of your setup comes back with one command. The rest dies with the disk, and in a file listing the two look identical. So the first thing this repo does is tell you which is which, before you wipe anything.
 
@@ -120,6 +120,20 @@ PROJ_ROOT="$HOME/code" bash scripts/capture-old-laptop.sh
 **You want to run it unattended.** Set `CH_YES=1` and it skips the confirmation.
 
 **You're on Windows.** Use WSL or Git Bash, which are both ways of getting a Linux-style terminal on Windows. Native PowerShell and `cmd` won't work.
+
+## Companion repos
+
+This sits in a family of Claude Code tooling I keep, and the guide's five layers each have a repo of their own:
+
+- [claude-code-rules](https://github.com/aksheyw/claude-code-rules): the rules layer. Opinionated global rules covering honesty and earned confidence, TDD, immutability, and branch strategy.
+- [claude-code-learned-skills](https://github.com/aksheyw/claude-code-learned-skills): the skills layer. 12 skills pulled out of real debugging and research sessions.
+- [claude-code-pm-agents](https://github.com/aksheyw/claude-code-pm-agents): the subagents layer. Seven specialists covering the product-builder lifecycle.
+- [claude-code-guardrail-hooks](https://github.com/aksheyw/claude-code-guardrail-hooks): the hooks layer. Four hooks that block or capture a mistake at the tool-call boundary, including the secret scan this guide leans on.
+- [context-bridge](https://github.com/aksheyw/context-bridge): the per-project layer. A small project wiki plus a generated handoff prompt, so a session picks up warm instead of cold.
+- [claude-code-ship-gate](https://github.com/aksheyw/claude-code-ship-gate): the gate that stops an un-reviewed push reaching your protected branch.
+- [awesome-claude-code-toolkit](https://github.com/aksheyw/awesome-claude-code-toolkit): the wider toolkit these sit in.
+
+If you're rebuilding a machine from scratch, those are a faster starting point than an empty `~/.claude/`.
 
 ## Credits
 

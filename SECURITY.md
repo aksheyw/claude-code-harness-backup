@@ -23,7 +23,9 @@ It warns you and waits for you to confirm before it copies anything.
 
 - Move it between machines over an encrypted channel.
 - Delete it from the old machine once the move is done.
-- Don't commit it. The ignore file here excludes `claude-migration/` as a backstop, but don't rely on that.
+- Don't commit it. Note that this repo's ignore file does **not** protect you here: the output folder defaults to
+  `~/claude-migration/`, which is outside the repo entirely. If you keep your home directory under version control,
+  add `claude-migration/` to that ignore file yourself.
 
 The readable report inside that folder is meant to be safe to share, so it records credential **names** and **locations** and never values. If you ever find a real secret value in `report.md`, that's a bug and I want to hear about it.
 

@@ -21,7 +21,7 @@ Then check three things:
 echo $?
 
 # It copied the layers nobody can regenerate
-for d in rules agents commands skills; do
+for d in rules skills agents commands scripts; do
   printf '%-10s %s\n' "$d" "$(find -L /tmp/capture-test/claude/$d -type f 2>/dev/null | wc -l)"
 done
 

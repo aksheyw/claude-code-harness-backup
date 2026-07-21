@@ -125,7 +125,7 @@ if [ -d "$HOME/.claude" ]; then
     src="$HOME/.claude/$d"
     if [ -d "$src" ]; then
       rsync -a --copy-links "$src/" "$OUT/claude/$d/" 2>/dev/null \
-        || cp -R "$src" "$OUT/claude/$d" 2>/dev/null
+        || cp -RL "$src" "$OUT/claude/$d" 2>/dev/null
       say "- \`$d/\` -> \`claude/$d/\` ($(find -L "$OUT/claude/$d" -type f 2>/dev/null | wc -l | tr -d ' ') files)"
     fi
   done
@@ -166,7 +166,7 @@ say "Hook scripts referenced by settings (these must exist on the new machine or
 say ""
 say '```'
 if have jq && [ -f "$HOME/.claude/settings.json" ]; then
-  jq -r '.. | .command? // empty' "$HOME/.claude/settings.json" 2>/dev/null | sort -u >> "$R"
+  jq -r '.. | .command? | if type=="array" then join(" ") elif type=="string" then . else empty end' "$HOME/.claude/settings.json" 2>/dev/null | sort -u >> "$R"
 fi
 say '```'
 say ""
@@ -271,7 +271,7 @@ if [ -d "$PROJ_ROOT" ]; then
   while IFS= read -r d; do
     [ -d "$d" ] || continue
     name=$(basename "$d")
-    if [ -d "$d/.git" ]; then
+    if git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
       remote=$(git -C "$d" remote get-url origin 2>/dev/null || echo "**NONE**")
       dirty=$(git -C "$d" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
       br=$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)
@@ -329,7 +329,7 @@ say "## 8. .env files across projects (NAMES only, values never printed)"
 say ""
 mkdir -p "$OUT/env-files"
 say '```'
-find "$PROJ_ROOT" -maxdepth 4 -name '.env*' -not -path '*/node_modules/*' -not -name '*.example' 2>/dev/null | while IFS= read -r e; do
+find "$PROJ_ROOT" -maxdepth 4 -type f -name '.env*' -not -path '*/node_modules/*' -not -name '*.example' 2>/dev/null | while IFS= read -r e; do
   echo "--- ${e/#$HOME/$TILDE}"
   # names only into the report; handles both `VAR=` and `export VAR=`
   grep -oE '^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=' "$e" 2>/dev/null \
