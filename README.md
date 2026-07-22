@@ -49,13 +49,13 @@ It doesn't touch your setup. The only thing it writes is its own output folder, 
 
 **You're setting up from scratch, or you want a better harness.** Skip the migration. [Part 5](GUIDE.md#part-5-the-layers-in-detail) builds the layers up in the order they become worth having, and [Part 9](GUIDE.md#part-9-principles-worth-stealing) is why it's shaped that way.
 
-**Nothing is wrong, you just want this backed up every week.** This is the one most people should end up on, and it's the same script on a schedule rather than a separate tool. Re-running it is safe: the report is rewritten each time and the copies are updated in place.
+**Nothing is wrong, you just want this backed up every week.** It's the same script on a schedule rather than a separate tool. Re-running it is safe: the report is rewritten each time and the copies are updated in place.
 
 ```bash
 CH_SYNC=1 CH_YES=1 bash claude-code-harness-backup/scripts/capture-harness.sh
 ```
 
-`CH_SYNC=1` mirrors deletions, so a rule you delete stops living in the backup forever. `CH_YES=1` skips the prompt so it can run unattended. Then commit the output folder to a **private** repo for history. The script writes a `.gitignore` excluding the credential-bearing files before anything can be committed. [Part 2.5](GUIDE.md#25-using-this-weekly-instead-of-once) covers the scanning you should still do yourself.
+`CH_SYNC=1` mirrors deletions, so a rule you delete from `~/.claude` goes from the backup too. `CH_YES=1` skips the prompt so it can run unattended. Then commit the output folder to a **private** repo for history. The script writes a `.gitignore` excluding the credential-bearing files before anything can be committed. [Part 2.5](GUIDE.md#25-using-this-weekly-instead-of-once) covers the scanning you should still do yourself.
 
 **You want your AI assistant to do this for you.** Hand it `GUIDE.md` and say so. It opens with a brief written for exactly that, which tells the assistant what to do first, what to leave alone, and what to verify before it tells you it's finished.
 
@@ -84,20 +84,22 @@ That last one has to print `0`. Your real secrets do get copied into the folder,
 This is the first table from a real run on my machine, with only the symlink target shortened:
 
 ```
-| Layer | Path | Count |
-|---|---|---|
-| agents | `~/.claude/agents` | 93 files |
-| commands | `~/.claude/commands` | 114 files |
-| rules | `~/.claude/rules` | 27 files |
-| skills | `~/.claude/skills` (symlink -> <elsewhere>) | 2142 files |
-| hooks | `~/.claude/hooks` | 1 files |
-| scripts | `~/.claude/scripts` | 214 files |
-| memory | `~/.claude/memory` | 19 files |
-| plugins | `~/.claude/plugins` | 40840 files |
-| scheduled-tasks | `~/.claude/scheduled-tasks` | 16 files |
+| Layer | Path | Count | In scope? |
+|---|---|---|---|
+| agents | `~/.claude/agents` | 93 files | yes, see the copy list below |
+| commands | `~/.claude/commands` | 114 files | yes, see the copy list below |
+| rules | `~/.claude/rules` | 27 files | yes, see the copy list below |
+| skills | `~/.claude/skills` (symlink -> <elsewhere>) | 2142 files | yes, see the copy list below |
+| hooks | `~/.claude/hooks` | 1 files | yes, see the copy list below |
+| scripts | `~/.claude/scripts` | 214 files | yes, see the copy list below |
+| memory | `~/.claude/memory` | 23 files | yes, see the copy list below |
+| plugins | `~/.claude/plugins` | 39873 files | **no**, reinstalled (see section 5) |
+| scheduled-tasks | `~/.claude/scheduled-tasks` | 16 files | yes, see the copy list below |
 ```
 
-Two things worth reading off that. `skills` is a symlink pointing outside `~/.claude/`, which a naive copy would preserve as a dead link on the new machine, so the script follows it. And `plugins` is 40,840 files, which is why the script does not copy them: they reinstall from a marketplace, and carrying them would make the output enormous for no gain.
+A few things worth reading off that. `skills` is a symlink pointing outside `~/.claude/`, which a naive copy would preserve as a dead link on the new machine, so the script follows it. `plugins` is 39,873 files and is the one row marked **no**, because plugins reinstall from a marketplace and carrying them would make the output enormous for no gain. And that column says what the script *tries* to copy, not what it managed to copy: the outcome is the copy list underneath, plus any line marked FAILED. Those are separate on purpose, because a table that reported success before the copy ran would be the most dangerous thing in the report.
+
+The `hooks` count is 1 because on this machine the hook scripts themselves live under `scripts/`, and `hooks/` holds a single config file. Yours may be arranged differently.
 
 Then it checks your projects. That is a second safety net rather than the main event, since most people's code is already on a remote, but the report tells you where that assumption is wrong:
 
@@ -118,7 +120,7 @@ That one is illustrative, not a real run. Three of those four rows are a problem
 
 **Don't bother if** you installed Claude Code last week and haven't customised anything. There's nothing to lose yet. Come back when there is.
 
-**It's not a sync tool.** It won't keep two machines in step and it doesn't run in the background. You run it once, on purpose, when you're about to lose a machine, and if you want that automated the guide has enough reasoning for you to build it yourself.
+**It won't keep two machines in step.** It copies one machine's setup into a folder, and it doesn't run in the background, so scheduling it is something you set up yourself. [Part 2.5](GUIDE.md#25-using-this-weekly-instead-of-once) is the ten-minute version of that.
 
 ## Security: what this touches
 
@@ -127,7 +129,7 @@ The script reads your config and copies some of it, including files with live cr
 - It warns you before it copies anything, and waits for you to confirm.
 - The readable report has names and locations in it, never a value.
 - The output folder itself does contain real credentials, in plain text. Move it over an encrypted channel, then delete it from the old machine.
-- Don't put that folder in a git repo.
+- Only put that folder in a git repo if the repo is **private**, and read the `.gitignore` the script writes before your first push. That ignore list covers what's secret by design, not a token you once pasted into a rule.
 
 The guide's [secrets protocol](GUIDE.md#part-6-secrets-the-part-that-goes-wrong) covers the wider problem, and the part that matters most is that git history is append-only, so a secret has to be kept out of the first commit. Taking it out later doesn't help.
 

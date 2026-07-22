@@ -7,9 +7,7 @@ Four uses, in order of urgency:
 - **Moving laptops right now?** [Part 2](#part-2-capture-the-old-machine) is time-critical. Do it before the old machine is gone.
 - **Old machine already gone?** Start at [Part 3](#part-3-rebuild-on-the-new-machine).
 - **Building from scratch?** Start at [Part 5](#part-5-the-layers-in-detail).
-- **Nothing wrong, you just want this backed up every week?** That is the one most people should end up on, and it is the same script on a schedule. See [Part 2.5](#25-using-this-weekly-instead-of-once).
-
-> **A migration is the emergency, not the point.** The script in Part 2 was written for the moment before a wipe, but re-running it is safe and expected, and running it weekly is what turns a rescue into a backup. If you only ever read one section past Part 2, read Part 2.5.
+- **Nothing wrong, you just want this backed up every week?** Same script, on a schedule. See [Part 2.5](#25-using-this-weekly-instead-of-once).
 
 > **What you need to run this.** A POSIX shell, which means the macOS Terminal, any Linux shell, or WSL or Git Bash on Windows. Native PowerShell and `cmd` are not supported, so on Windows use WSL. Where a command differs between macOS and Linux, both versions are given.
 
@@ -117,7 +115,7 @@ PROJ_ROOT="$HOME/code" bash capture-harness.sh
 #!/usr/bin/env bash
 # capture-harness.sh: READ-ONLY capture of a Claude Code setup.
 #
-# Two ways to use it, and the second is the one most people should end up on:
+# Two ways to use it, and most people end up on the second:
 #
 #   1. ONCE, before you wipe a machine. Read the report, fix every warning,
 #      move the folder to the new laptop over an encrypted channel.
@@ -800,13 +798,13 @@ The migration folder now contains real credentials. Treat it accordingly.
 
 ### 2.5 Using this weekly instead of once
 
-Everything above is written for the hour before a wipe. That is the emergency, and it is not the point. The same script run every week is a backup, and a backup is what stops the emergency from mattering.
+Everything above is written for the hour before a wipe. The same script run every week is a backup, so if that hour ever comes you already have last week's copy.
 
-**Re-running is safe.** The report is rewritten from scratch each run and the copies are updated in place, so running it a hundred times leaves the same folder you would get from running it once.
+**Re-running is safe.** The report is rewritten from scratch each run and the copies are updated in place, so a second run does not leave you a second copy of anything.
 
 Three things change when you move from once to weekly.
 
-**1. Turn on mirror mode, or the folder slowly stops being true.**
+**1. Turn on mirror mode, or the folder fills up with things you deleted on purpose.**
 
 ```bash
 CH_SYNC=1 CH_YES=1 bash capture-harness.sh
@@ -818,7 +816,7 @@ By default the script only ever adds and overwrites. That is the right default f
 
 `CH_YES=1` skips the confirmation prompt, which you need for anything unattended.
 
-**2. Commit it to a private repo, or you have one point in time and call it history.**
+**2. Commit it to a private repo, or all you ever have is this morning's version.**
 
 A folder that overwrites itself every week tells you what your setup looked like this morning and nothing else. The value of a weekly backup is answering "what did this look like before I broke it," and that needs git.
 
@@ -844,7 +842,7 @@ find ~/claude-harness-backup/report.md -mtime +8 \
   && echo "BACKUP IS STALE, it has not run in over a week"
 ```
 
-A backup you have never restored from is a hypothesis. Once a year, restore it into a throwaway location and see whether it actually stands your setup back up.
+Once a year, restore it into a throwaway location and check that it actually stands your setup back up. Part 10 has more on this.
 
 ---
 
@@ -1574,7 +1572,7 @@ The rest of this section is what you build when the cheap version is no longer e
   ```
   A restore procedure nobody has ever executed is a hypothesis.
 
-Then schedule it, weekly is plenty, and confirm it actually ran. A backup you have never restored from is not a backup.
+Then schedule it, weekly is plenty, and confirm it actually ran.
 
 ---
 

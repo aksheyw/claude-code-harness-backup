@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # capture-harness.sh: READ-ONLY capture of a Claude Code setup.
 #
-# Two ways to use it, and the second is the one most people should end up on:
+# Two ways to use it, and most people end up on the second:
 #
 #   1. ONCE, before you wipe a machine. Read the report, fix every warning,
 #      move the folder to the new laptop over an encrypted channel.
