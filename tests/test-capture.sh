@@ -189,32 +189,97 @@ check "$?" "2" "CH_SYNC refuses when OUT is an ancestor of home"
 # This is the whole reason the script counts failures. People read this
 # report and then erase a disk.
 FB="$FAKE/failure"
-mkdir -p "$FB/home/.claude/rules" "$FB/proj"
+mkdir -p "$FB/home/.claude/rules" "$FB/proj" "$FB/out"
 echo "r" > "$FB/home/.claude/rules/a.md"
 printf '{"mcpServers":{}}' > "$FB/home/.claude.json"
-chmod 000 "$FB/home/.claude.json"          # the single highest-value file
+# Induce the failure with a destination that CANNOT be written rather than a
+# source that cannot be read. `chmod 000` is not a barrier to root, so a
+# permission-based fixture turns into a silent no-op on a root CI container,
+# and the single most important assertion in this file would pass vacuously.
+# A regular file where a directory must be fails for every user, root included.
+: > "$FB/out/config"
 CH_YES=1 HOME="$FB/home" OUT="$FB/out" PROJ_ROOT="$FB/proj" bash "$SCRIPT" >/dev/null 2>&1
 FRC=$?
-chmod 644 "$FB/home/.claude.json" 2>/dev/null || true
-# root can read a 000 file, so on a root runner this scenario cannot arise.
-if [ "$(id -u)" = "0" ]; then
-  ok "SKIPPED failure-path assertions (running as root; chmod 000 is not a barrier)"
+check "$FRC" "1" "a failed copy makes the script exit 1"
+if [ -f "$FB/out/report.md" ]; then
+  grep -q 'FAILED to copy' "$FB/out/report.md" \
+    && ok "the report names the failed copy" || bad "the report names the failed copy"
+  # the actual bug this replaced: the report claimed success for a file it never copied
+  grep -q '^- Copied .*claude\.json' "$FB/out/report.md" \
+    && bad "the report must NOT claim it copied the file that failed" \
+    || ok "the report does not claim it copied the file that failed"
+  grep -q 'FAILED to copy' "$FB/out/report.md" && grep -q 'Do not wipe this machine' "$FB/out/report.md" \
+    && ok "the report tells the reader not to wipe" || bad "the report tells the reader not to wipe"
 else
-  check "$FRC" "1" "a failed copy makes the script exit 1"
-  if [ -f "$FB/out/report.md" ]; then
-    grep -q 'FAILED to copy' "$FB/out/report.md" \
-      && ok "the report names the failed copy" || bad "the report names the failed copy"
-    # the actual bug this replaced: the report claimed success for a file it never copied
-    grep -q '^- Copied .*claude\.json' "$FB/out/report.md" \
-      && bad "the report must NOT claim it copied the file that failed" \
-      || ok "the report does not claim it copied the file that failed"
-    [ -f "$FB/out/config/claude.json.SECRET" ] \
-      && bad "no phantom output file for a failed copy" \
-      || ok "no phantom output file for a failed copy"
+  bad "the report names the failed copy (no report produced)"
+  bad "the report does not claim it copied the file that failed (no report)"
+  bad "the report tells the reader not to wipe (no report)"
+fi
+
+# ---- 11b. mirror mode must never silently degrade into a non-mirror ------
+# Without rsync there is no way to propagate a deletion, so claiming to
+# mirror would be a lie. It has to refuse rather than half-do the job.
+MB="$FAKE/nomirror"
+mkdir -p "$MB/home/.claude/rules" "$MB/bin"
+echo "r" > "$MB/home/.claude/rules/a.md"
+# Build a PATH holding every usual tool EXCEPT rsync. Simply emptying PATH
+# does not work: `env` resolves the program it runs through the new PATH, so
+# the test would die at 127 before the script ever started, which looks like
+# a failing assertion but tests nothing.
+for _p in /bin /usr/bin; do
+  [ -d "$_p" ] || continue
+  for _f in "$_p"/*; do
+    _n=$(basename "$_f")
+    [ "$_n" = "rsync" ] && continue
+    [ -e "$MB/bin/$_n" ] || ln -s "$_f" "$MB/bin/$_n" 2>/dev/null
+  done
+done
+if [ -x "$MB/bin/bash" ] && ! [ -e "$MB/bin/rsync" ]; then
+  env PATH="$MB/bin" CH_YES=1 CH_SYNC=1 HOME="$MB/home" OUT="$MB/out" \
+    "$MB/bin/bash" "$SCRIPT" >/dev/null 2>&1
+  check "$?" "2" "CH_SYNC refuses when rsync is unavailable"
+else
+  bad "CH_SYNC refuses when rsync is unavailable (could not build an rsync-free PATH)"
+fi
+
+# ---- 11c. re-running without rsync must not nest the copy ---------------
+# `cp -RL src dest` puts src INSIDE dest once dest exists, so a second run
+# would build claude/rules/rules/ and the file count would double.
+NB="$FAKE/norsync"
+mkdir -p "$NB/home/.claude/rules" "$NB/proj" "$NB/stub"
+echo "r" > "$NB/home/.claude/rules/a.md"
+printf '{"mcpServers":{}}' > "$NB/home/.claude.json"
+printf '#!/bin/sh\nexit 1\n' > "$NB/stub/rsync"; chmod +x "$NB/stub/rsync"   # force the cp path
+for _ in 1 2; do
+  env PATH="$NB/stub:$PATH" CH_YES=1 HOME="$NB/home" OUT="$NB/out" PROJ_ROOT="$NB/proj" \
+    bash "$SCRIPT" >/dev/null 2>&1
+done
+[ -e "$NB/out/claude/rules/rules" ] \
+  && bad "the cp fallback does not nest on a re-run" \
+  || ok "the cp fallback does not nest on a re-run"
+[ -f "$NB/out/claude/rules/a.md" ] \
+  && ok "the cp fallback still captures the files" \
+  || bad "the cp fallback still captures the files"
+
+# ---- 11d. a credential inside a git remote URL never reaches the report --
+if command -v git >/dev/null 2>&1; then
+  GB="$FAKE/giturl"
+  mkdir -p "$GB/home/.claude" "$GB/proj/repo"
+  echo "r" > "$GB/home/.claude/r.md"
+  printf '{"mcpServers":{}}' > "$GB/home/.claude.json"
+  URL_SECRET="notarealtokenvalue0123456789"
+  ( cd "$GB/proj/repo" && git init -q . \
+    && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m i \
+    && git remote add origin "https://oauth2:$URL_SECRET@example.com/o/r.git" ) >/dev/null 2>&1
+  CH_YES=1 HOME="$GB/home" OUT="$GB/out" PROJ_ROOT="$GB/proj" bash "$SCRIPT" >/dev/null 2>&1
+  if [ ! -s "$GB/out/report.md" ]; then
+    bad "a token in a git remote URL is redacted (no report produced)"
+  elif ! grep -q 'example.com' "$GB/out/report.md"; then
+    bad "a token in a git remote URL is redacted (the remote never reached the report)"
   else
-    bad "the report names the failed copy (no report produced)"
-    bad "the report does not claim it copied the file that failed (no report)"
-    bad "no phantom output file for a failed copy (no report)"
+    grep -q "$URL_SECRET" "$GB/out/report.md" \
+      && bad "a token in a git remote URL is redacted" \
+      || ok "a token in a git remote URL is redacted"
   fi
 fi
 

@@ -64,20 +64,37 @@ PROJ_ROOT="${PROJ_ROOT:-$HOME/Documents/Claude Code}"
 TILDE="~"
 R="$OUT/report.md"
 
-# ---- Mirror mode: refuse unsafe destinations BEFORE creating anything ----
+# ---- Mirror mode: refuse unsafe destinations BEFORE deleting anything ----
+# The checks below compare RESOLVED physical paths, not the strings the user
+# typed. A string comparison is trivially defeated by a trailing slash, by a
+# `..` segment, or by an OUT that is a symlink to somewhere important, and the
+# thing on the other side of that check is `rsync --delete`.
 RSYNC_OPTS=(-a --copy-links)
 SYNC_MODE="off"
+mkdir -p "$OUT" 2>/dev/null
+OUT_P=$(cd "$OUT" 2>/dev/null && pwd -P)
+HOME_P=$(cd "$HOME" 2>/dev/null && pwd -P)
 if [ "${CH_SYNC:-0}" = "1" ]; then
-  case "$OUT" in
-    "" | "/" ) printf 'refusing: OUT is %s, which is not a safe mirror target\n' "${OUT:-empty}" >&2; exit 2 ;;
-  esac
-  if [ "$OUT" = "$HOME" ]; then
-    printf 'refusing: OUT is your home directory; mirror mode would delete inside it\n' >&2
+  if [ -z "$OUT_P" ]; then
+    printf 'refusing: cannot resolve OUT (%s)\n' "${OUT:-empty}" >&2; exit 2
+  fi
+  if [ "$OUT_P" = "/" ]; then
+    printf 'refusing: OUT resolves to /, which is not a safe mirror target\n' >&2; exit 2
+  fi
+  if [ -n "$HOME_P" ] && [ "$OUT_P" = "$HOME_P" ]; then
+    printf 'refusing: OUT resolves to your home directory (%s); mirror mode would delete inside it\n' "$OUT_P" >&2
     exit 2
   fi
-  case "$HOME" in
-    "$OUT"/*) printf 'refusing: OUT (%s) contains your home directory\n' "$OUT" >&2; exit 2 ;;
+  case "$HOME_P" in
+    "$OUT_P"/*) printf 'refusing: OUT (%s) contains your home directory\n' "$OUT_P" >&2; exit 2 ;;
   esac
+  # Mirror mode is rsync-only. Falling back to `cp` would copy without
+  # deleting, so the run would report "mirror" while quietly not mirroring.
+  if ! command -v rsync >/dev/null 2>&1; then
+    printf 'refusing: CH_SYNC=1 needs rsync, which is not installed.\n' >&2
+    printf '          Install rsync, or re-run without CH_SYNC for an additive copy.\n' >&2
+    exit 2
+  fi
   RSYNC_OPTS+=(--delete)
   SYNC_MODE="on"
 fi
@@ -99,12 +116,29 @@ fail() {
 
 # copy_tree <src-dir> <dest-dir> ; honours mirror mode
 copy_tree() {
+  # A destination that is a symlink would let a copy, and in mirror mode a
+  # delete, act on whatever it points at, which may be outside this folder.
+  # Refuse rather than write through it.
+  if [ -L "$2" ]; then
+    printf 'destination is a symlink, refusing to write through it: %s\n' "$2" >>"$ERRLOG"
+    return 1
+  fi
   rsync "${RSYNC_OPTS[@]}" "$1/" "$2/" 2>>"$ERRLOG" && return 0
+  # In mirror mode a `cp` fallback would copy without deleting, so the folder
+  # would stop being a mirror while still claiming to be one. Fail instead.
+  [ "$SYNC_MODE" = "on" ] && return 1
   # rsync may be absent (common on minimal Linux). -L follows symlinks, which
   # matters because ~/.claude/skills is very often a link to a repo elsewhere.
-  cp -RL "$1" "$2" 2>>"$ERRLOG" && return 0
+  # `$1/.` copies the CONTENTS: plain `cp -RL "$1" "$2"` would nest the source
+  # inside an existing destination on the second run (claude/rules/rules/).
+  mkdir -p "$2" 2>>"$ERRLOG" && cp -RL "$1/." "$2/" 2>>"$ERRLOG" && return 0
   return 1
 }
+
+# Strip credentials embedded in a URL, e.g. https://user:token@host/repo.git .
+# report.md is meant to be shareable, and a remote URL is one of the few
+# places a live token reaches it without anyone intending to put it there.
+redact_url() { printf '%s' "$1" | sed -E 's#://[^/@[:space:]]*:[^/@[:space:]]*@#://<REDACTED>@#g'; }
 
 # copy_file <src> <dest> <label>
 copy_file() {
@@ -195,8 +229,11 @@ done
 say '```'
 say ""
 if ! have rsync; then
-  say "> \`rsync\` is not installed here, so the copies below fall back to \`cp -RL\`."
-  say "> That works, but mirror mode (\`CH_SYNC=1\`) needs rsync and is ignored without it."
+  say "> \`rsync\` is not installed here, so the copies below use \`cp\` instead."
+  say "> That copies fine, but it cannot remove files you have deleted, so mirror"
+  say "> mode (\`CH_SYNC=1\`) refuses to run at all on this machine rather than"
+  say "> quietly producing a backup that is not a mirror. Install rsync if you"
+  say "> want the weekly workflow."
   say ""
 fi
 
@@ -212,14 +249,18 @@ if [ -d "$HOME/.claude" ]; then
   say ""
   say "Counts (what you must see again on the new machine):"
   say ""
-  say "| Layer | Path | Count | Copied here? |"
+  # This column states SCOPE (what this script tries to copy), not OUTCOME.
+  # Outcome is the copy list below plus any FAILED lines, which are the only
+  # things that reflect what actually happened. Deriving an outcome column
+  # from the source path's existence would print "yes" next to a failed copy.
+  say "| Layer | Path | Count | In scope? |"
   say "|---|---|---|---|"
   for d in agents commands rules skills hooks scripts memory plugins scheduled-tasks; do
     p="$HOME/.claude/$d"
     # `plugins` is inventoried but deliberately NOT copied: it is mostly
     # marketplace clones that reinstall from the lockfile in section 5, and it
     # can run to gigabytes. Saying so in the table stops it reading as backed up.
-    copied="yes"
+    copied="yes, see the copy list below"
     [ "$d" = "plugins" ] && copied="**no**, reinstalled (see section 5)"
     if [ -e "$p" ]; then
       n=$(find -L "$p" -type f 2>/dev/null | wc -l | tr -d ' ')
@@ -379,7 +420,8 @@ if have jq && [ -f "$MKTS" ]; then
   say "Registered marketplaces (a \`directory\` source points at a LOCAL folder you must also copy):"
   say ""
   say '```'
-  jq -r 'to_entries[] | "\(.key): \(.value.source.source // "?") \(.value.source.repo // .value.source.path // "")"' "$MKTS" 2>/dev/null >> "$R"
+  jq -r 'to_entries[] | "\(.key): \(.value.source.source // "?") \(.value.source.repo // .value.source.path // "")"' "$MKTS" 2>/dev/null \
+    | sed -E 's#://[^/@[:space:]]*:[^/@[:space:]]*@#://<REDACTED>@#g' >> "$R"
   say '```'
 fi
 
@@ -410,7 +452,7 @@ if [ -d "$PROJ_ROOT" ]; then
     [ -d "$d" ] || continue
     name=$(basename "$d")
     if git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-      remote=$(git -C "$d" remote get-url origin 2>/dev/null || echo "**NONE**")
+      remote=$(redact_url "$(git -C "$d" remote get-url origin 2>/dev/null || echo "**NONE**")")
       dirty=$(git -C "$d" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
       br=$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)
       if git -C "$d" rev-parse --abbrev-ref "@{u}" >/dev/null 2>&1; then
