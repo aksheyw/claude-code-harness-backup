@@ -332,9 +332,51 @@ if command -v git >/dev/null 2>&1; then
   done
 fi
 
+# ---- 11d-2. the MARKETPLACE url pipeline is redacted too -----------------
+# Separate code path from git remotes, and it regressed once already by being
+# left on a single-rule redactor after the shared one gained a second rule.
+if command -v jq >/dev/null 2>&1; then
+  MB2="$FAKE/mkts"
+  mkdir -p "$MB2/home/.claude/plugins" "$MB2/proj"
+  echo "r" > "$MB2/home/.claude/r.md"
+  printf '{"mcpServers":{}}' > "$MB2/home/.claude.json"
+  printf '{"hooks":{},"enabledPlugins":{}}' > "$MB2/home/.claude/settings.json"
+  MKT_SECRET="notarealmarketplacetoken0123456789"
+  cat > "$MB2/home/.claude/plugins/known_marketplaces.json" <<JSON
+{"demo-market":{"source":{"source":"github","repo":"https://$MKT_SECRET@example.com/org/market.git"}}}
+JSON
+  CH_YES=1 HOME="$MB2/home" OUT="$MB2/out" PROJ_ROOT="$MB2/proj" bash "$SCRIPT" >/dev/null 2>&1
+  if [ ! -s "$MB2/out/report.md" ]; then
+    bad "a colon-free token in a marketplace URL is redacted (no report)"
+  elif ! grep -q 'demo-market' "$MB2/out/report.md"; then
+    bad "a colon-free token in a marketplace URL is redacted (the entry never reached the report)"
+  else
+    grep -q "$MKT_SECRET" "$MB2/out/report.md" \
+      && bad "a colon-free token in a marketplace URL is redacted" \
+      || ok "a colon-free token in a marketplace URL is redacted"
+  fi
+fi
+
 # ---- 11e. the output folder's own paths are not written through symlinks --
 # report.md, config/, inventory/ and env-files/ are written directly, not via
 # copy_tree, so they need their own containment check.
+# A NESTED link matters as much as a top-level one, and is the case an
+# enumerated list of paths keeps missing: inventory/errors.log is truncated
+# with `: >` before the prompt is even shown.
+NEST="$FAKE/sym-nested"
+mkdir -p "$NEST/home/.claude" "$NEST/out/inventory" "$NEST/victim"
+echo "irreplaceable" > "$NEST/victim/important.txt"
+echo "r" > "$NEST/home/.claude/r.md"
+printf '{"mcpServers":{}}' > "$NEST/home/.claude.json"
+ln -s "$NEST/victim/important.txt" "$NEST/out/inventory/errors.log"
+CH_YES=1 HOME="$NEST/home" OUT="$NEST/out" PROJ_ROOT="$NEST/none" bash "$SCRIPT" >/dev/null 2>&1
+_nrc=$?
+if [ "$(cat "$NEST/victim/important.txt" 2>/dev/null)" = "irreplaceable" ] && [ "$_nrc" = "2" ]; then
+  ok "refuses on a symlink nested below the output folder's top level"
+else
+  bad "refuses on a symlink nested below the output folder's top level (rc=$_nrc)"
+fi
+
 for _target in report.md config inventory env-files; do
   YB="$FAKE/sym-$_target"
   mkdir -p "$YB/home/.claude" "$YB/out" "$YB/victim"

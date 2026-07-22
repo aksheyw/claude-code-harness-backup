@@ -99,19 +99,22 @@ if [ "${CH_SYNC:-0}" = "1" ]; then
   SYNC_MODE="on"
 fi
 
-# Every path this script writes to lives directly under OUT. If any of them is
-# already a symlink, the write lands wherever it points, which is outside this
-# folder and not something the user asked for. `copy_tree` guards the payload
-# directories; these are the rest, including report.md itself. Refuse early
-# rather than truncate somebody's file.
-for _p in "$OUT/report.md" "$OUT/.gitignore" "$OUT/config" "$OUT/inventory" \
-          "$OUT/env-files" "$OUT/claude"; do
-  if [ -L "$_p" ]; then
-    printf 'refusing: %s is a symlink, so writing here would modify whatever it\n' "$_p" >&2
-    printf '          points at. Remove it, or choose a different OUT.\n' >&2
-    exit 2
-  fi
-done
+# A symlink ANYWHERE under the output folder can redirect a write, or in
+# mirror mode a delete, to a file this script was never pointed at. Listing
+# the paths to check does not work: every list is correct until someone puts
+# a link one level deeper than the list goes. So assert the invariant instead.
+#
+# The invariant holds by construction: every copy here dereferences (rsync
+# --copy-links, cp -RL), so a folder this script produced contains no symlinks
+# at all. One found means the folder was arranged by something else, and the
+# safe response is to stop rather than to guess which ones are harmless.
+if _link=$(find "$OUT" -type l -print 2>/dev/null | head -1) && [ -n "$_link" ]; then
+  printf 'refusing: %s is a symlink.\n' "$_link" >&2
+  printf '          Writing here would modify whatever it points at, which may be\n' >&2
+  printf '          outside this folder. This script never creates symlinks, so it\n' >&2
+  printf '          did not put that there. Remove it, or choose a different OUT.\n' >&2
+  exit 2
+fi
 
 mkdir -p "$OUT/config" "$OUT/inventory"
 ERRLOG="$OUT/inventory/errors.log"
