@@ -232,9 +232,24 @@ fail() {
 
 # copy_tree <src-dir> <dest-dir> ; honours mirror mode
 copy_tree() {
-  # A destination that is a symlink would let a copy, and in mirror mode a
-  # delete, act on whatever it points at, which may be outside this folder.
-  # Refuse rather than write through it.
+  # Everything this writes to, and in mirror mode deletes in, must physically
+  # live inside the output folder. Checking only the leaf is not enough: a
+  # symlink at ANY level above it (say OUT/claude pointing at your home
+  # directory) leaves the leaf looking like an ordinary directory while the
+  # writes and deletes land somewhere else entirely. So resolve the parent
+  # first, before creating the leaf, and refuse if it escapes.
+  local _parent _parent_p
+  _parent=$(dirname "$2")
+  mkdir -p "$_parent" 2>>"$ERRLOG" || return 1
+  _parent_p=$(cd "$_parent" 2>/dev/null && pwd -P) || return 1
+  case "$_parent_p" in
+    "$OUT_P" | "$OUT_P"/*) : ;;
+    *)
+      printf 'destination escapes the output folder, refusing: %s resolves to %s\n' \
+        "$_parent" "$_parent_p" >>"$ERRLOG"
+      return 1 ;;
+  esac
+  # And the leaf itself must not be a symlink, for the same reason.
   if [ -L "$2" ]; then
     printf 'destination is a symlink, refusing to write through it: %s\n' "$2" >>"$ERRLOG"
     return 1
@@ -251,10 +266,13 @@ copy_tree() {
   return 1
 }
 
-# Strip credentials embedded in a URL, e.g. https://user:token@host/repo.git .
-# report.md is meant to be shareable, and a remote URL is one of the few
-# places a live token reaches it without anyone intending to put it there.
-redact_url() { printf '%s' "$1" | sed -E 's#://[^/@[:space:]]*:[^/@[:space:]]*@#://<REDACTED>@#g'; }
+# Strip credentials embedded in a URL. report.md is meant to be shareable,
+# and a remote URL is one of the few places a live token reaches it without
+# anyone intending to put it there. Two forms, and the second is easy to
+# forget: `https://user:token@host` AND `https://token@host` with no colon
+# at all, which is how most forge tokens are actually pasted.
+REDACT_URL_SED='s#://[^/@[:space:]]*:[^/@[:space:]]*@#://<REDACTED>@#g; s#://[^/@[:space:]]+@#://<REDACTED>@#g'
+redact_url() { printf '%s' "$1" | sed -E "$REDACT_URL_SED"; }
 
 # copy_file <src> <dest> <label>
 copy_file() {
@@ -461,6 +479,7 @@ if have jq && [ -f "$HOME/.claude/settings.json" ]; then
         -e 's/([0-9]{8,12}:AA)[A-Za-z0-9_-]{10,}/\1<REDACTED>/g' \
         -e 's/((KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)[A-Za-z0-9_]*=)[^[:space:]"'"'"']{8,}/\1<REDACTED>/g' \
         -e 's/(([Bb]earer|[Aa]uthorization:?)[[:space:]]+)[A-Za-z0-9._-]{12,}/\1<REDACTED>/g' \
+        -e "$REDACT_URL_SED" \
     | sort -u >> "$R"
 fi
 say '```'
@@ -501,8 +520,18 @@ say ""
 say "Project-level \`.mcp.json\` files (committed, project-scope servers):"
 say ""
 say '```'
-find "$PROJ_ROOT" -maxdepth 3 -name '.mcp.json' -not -path '*/node_modules/*' 2>/dev/null | head -50 >> "$R"
+MCP_ALL=$(find "$PROJ_ROOT" -maxdepth 3 -name '.mcp.json' -not -path '*/node_modules/*' 2>/dev/null)
+printf '%s\n' "$MCP_ALL" | grep -v '^$' | head -50 >> "$R"
 say '```'
+# Never truncate silently. A capped list reads as a complete one, and this
+# report is used to decide what is safe to erase.
+MCP_N=$(printf '%s\n' "$MCP_ALL" | grep -c '[^[:space:]]' || true)
+if [ "${MCP_N:-0}" -gt 50 ]; then
+  say ""
+  say "> **This list is truncated at 50. $MCP_N were found.** Re-run the \`find\` above without \`head\` to see them all."
+fi
+say ""
+say "> Scope note: this search covers 3 directory levels under \`$PROJ_ROOT\`, and the \`.env\` search below covers 4. Anything deeper is not listed, so it is not evidence of absence."
 say ""
 
 # ------------------------------------------------------------- 5. plugins

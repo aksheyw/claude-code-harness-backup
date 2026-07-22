@@ -261,6 +261,36 @@ done
   && ok "the cp fallback still captures the files" \
   || bad "the cp fallback still captures the files"
 
+# ---- 11c-2. nothing is written or deleted outside the output folder ------
+# A symlink ANYWHERE above the destination redirects the copy, and in mirror
+# mode the delete, to wherever it points. The leaf can look like an ordinary
+# directory while the parent is the link, so both levels get a case here.
+for _case in parent leaf; do
+  XB="$FAKE/escape-$_case"
+  mkdir -p "$XB/home/.claude/rules" "$XB/out" "$XB/victim/rules"
+  echo "irreplaceable" > "$XB/victim/rules/precious.md"
+  echo "r" > "$XB/home/.claude/rules/a.md"
+  printf '{"mcpServers":{}}' > "$XB/home/.claude.json"
+  if [ "$_case" = "parent" ]; then
+    ln -sfn "$XB/victim" "$XB/out/claude"          # the PARENT is the symlink
+  else
+    mkdir -p "$XB/out/claude"
+    ln -sfn "$XB/victim/rules" "$XB/out/claude/rules"   # the LEAF is the symlink
+  fi
+  CH_YES=1 CH_SYNC=1 HOME="$XB/home" OUT="$XB/out" PROJ_ROOT="$XB/nothing" \
+    bash "$SCRIPT" >/dev/null 2>&1
+  [ -f "$XB/victim/rules/precious.md" ] \
+    && ok "mirror mode cannot delete outside the output folder ($_case symlink)" \
+    || bad "mirror mode cannot delete outside the output folder ($_case symlink)"
+  if [ -s "$XB/out/report.md" ]; then
+    grep -q 'FAILED to copy' "$XB/out/report.md" \
+      && ok "the escaping copy is reported as a failure ($_case symlink)" \
+      || bad "the escaping copy is reported as a failure ($_case symlink)"
+  else
+    bad "the escaping copy is reported as a failure ($_case symlink, no report)"
+  fi
+done
+
 # ---- 11d. a credential inside a git remote URL never reaches the report --
 if command -v git >/dev/null 2>&1; then
   GB="$FAKE/giturl"
@@ -268,18 +298,29 @@ if command -v git >/dev/null 2>&1; then
   echo "r" > "$GB/home/.claude/r.md"
   printf '{"mcpServers":{}}' > "$GB/home/.claude.json"
   URL_SECRET="notarealtokenvalue0123456789"
+  mkdir -p "$GB/proj/repo2"
   ( cd "$GB/proj/repo" && git init -q . \
     && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m i \
     && git remote add origin "https://oauth2:$URL_SECRET@example.com/o/r.git" ) >/dev/null 2>&1
+  # The colon-free form is the one most forge tokens are actually pasted in,
+  # and a redactor written only for user:pass@ sails straight past it.
+  ( cd "$GB/proj/repo2" && git init -q . \
+    && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m i \
+    && git remote add origin "https://$URL_SECRET@example.com/o/r2.git" ) >/dev/null 2>&1
   CH_YES=1 HOME="$GB/home" OUT="$GB/out" PROJ_ROOT="$GB/proj" bash "$SCRIPT" >/dev/null 2>&1
   if [ ! -s "$GB/out/report.md" ]; then
     bad "a token in a git remote URL is redacted (no report produced)"
+    bad "a colon-free token URL is redacted (no report produced)"
   elif ! grep -q 'example.com' "$GB/out/report.md"; then
     bad "a token in a git remote URL is redacted (the remote never reached the report)"
+    bad "a colon-free token URL is redacted (the remote never reached the report)"
   else
     grep -q "$URL_SECRET" "$GB/out/report.md" \
       && bad "a token in a git remote URL is redacted" \
       || ok "a token in a git remote URL is redacted"
+    grep -q "o/r2.git" "$GB/out/report.md" \
+      && ok "a colon-free token URL is redacted" \
+      || bad "a colon-free token URL is redacted (repo2 missing from the report)"
   fi
 fi
 
