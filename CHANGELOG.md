@@ -39,3 +39,15 @@ First public release.
 - **Hook commands quoted in the report are redacted.** An inline hook command can carry a token, and `report.md` is the file people paste into an issue.
 - **`plugins` no longer reads as backed up.** It was listed in the counts table alongside directories that genuinely are copied, while the code only measured its size. The table now says explicitly that it is reinstalled rather than copied.
 - **A failed `.env` copy is recorded** instead of passing silently under a blanket claim that the files were copied.
+
+### Security
+
+- **The output folder's own paths are no longer written through symlinks.** `report.md`, `.gitignore`, `config/`, `inventory/`, `env-files/` and `claude/` were written directly, so a symlink at any of them redirected the write, or in mirror mode the delete, to whatever it pointed at. The script now refuses to start if any of them is a symlink, and `copy_tree` resolves its destination's parent and refuses anything that does not physically live under the output folder.
+- **URL credential redaction now covers the colon-free form** (`https://token@host`, how most forge tokens are actually pasted), not only `https://user:password@host`, and applies to marketplace URLs and hook commands as well as git remotes.
+- **The report says plainly what its hook-command redaction cannot catch.** A secret passed as a bare argument such as `--token abc123` is indistinguishable from an ordinary word, and the report now says so where it matters rather than implying the block is clean.
+- **The `.mcp.json` list says when it has been truncated**, and both searches state their depth. A capped list read as a complete one in a report used to decide what is safe to erase.
+
+### Known limits
+
+- Redaction is shape-based and cannot be exhaustive. Read `report.md` before sharing it.
+- The containment checks are not atomic. A symlink swapped into the output folder in the moment between the check and the copy would defeat them. This is worth knowing if the folder lives somewhere other processes can write; it is not a concern for an ordinary folder in your home directory.

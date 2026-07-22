@@ -99,6 +99,20 @@ if [ "${CH_SYNC:-0}" = "1" ]; then
   SYNC_MODE="on"
 fi
 
+# Every path this script writes to lives directly under OUT. If any of them is
+# already a symlink, the write lands wherever it points, which is outside this
+# folder and not something the user asked for. `copy_tree` guards the payload
+# directories; these are the rest, including report.md itself. Refuse early
+# rather than truncate somebody's file.
+for _p in "$OUT/report.md" "$OUT/.gitignore" "$OUT/config" "$OUT/inventory" \
+          "$OUT/env-files" "$OUT/claude"; do
+  if [ -L "$_p" ]; then
+    printf 'refusing: %s is a symlink, so writing here would modify whatever it\n' "$_p" >&2
+    printf '          points at. Remove it, or choose a different OUT.\n' >&2
+    exit 2
+  fi
+done
+
 mkdir -p "$OUT/config" "$OUT/inventory"
 ERRLOG="$OUT/inventory/errors.log"
 : > "$ERRLOG"
@@ -348,6 +362,12 @@ done
 say ""
 say "Hook scripts referenced by settings (these must exist on the new machine or every session errors):"
 say ""
+say "> Credential-shaped text below is replaced with \`<REDACTED>\`, but that only covers"
+say "> the shapes it knows: provider key prefixes, \`NAME=value\`, auth headers, and URLs"
+say "> with credentials in them. A secret passed as a bare argument, say \`--token abc123\`,"
+say "> looks like an ordinary word and survives. **Read this block before you paste this"
+say "> report anywhere.**"
+say ""
 say '```'
 if have jq && [ -f "$HOME/.claude/settings.json" ]; then
   # Redact anything credential-shaped. A hook can legitimately be an inline
@@ -450,7 +470,7 @@ if have jq && [ -f "$MKTS" ]; then
   say ""
   say '```'
   jq -r 'to_entries[] | "\(.key): \(.value.source.source // "?") \(.value.source.repo // .value.source.path // "")"' "$MKTS" 2>/dev/null \
-    | sed -E 's#://[^/@[:space:]]*:[^/@[:space:]]*@#://<REDACTED>@#g' >> "$R"
+    | sed -E "$REDACT_URL_SED" >> "$R"
   say '```'
 fi
 

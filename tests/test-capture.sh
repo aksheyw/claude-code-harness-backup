@@ -279,15 +279,20 @@ for _case in parent leaf; do
   fi
   CH_YES=1 CH_SYNC=1 HOME="$XB/home" OUT="$XB/out" PROJ_ROOT="$XB/nothing" \
     bash "$SCRIPT" >/dev/null 2>&1
+  _rc=$?
+  # The assertion that matters, in both shapes: the external file lives.
   [ -f "$XB/victim/rules/precious.md" ] \
     && ok "mirror mode cannot delete outside the output folder ($_case symlink)" \
     || bad "mirror mode cannot delete outside the output folder ($_case symlink)"
-  if [ -s "$XB/out/report.md" ]; then
-    grep -q 'FAILED to copy' "$XB/out/report.md" \
-      && ok "the escaping copy is reported as a failure ($_case symlink)" \
-      || bad "the escaping copy is reported as a failure ($_case symlink)"
+  # Two safe outcomes, depending on which guard catches it first. Refusing up
+  # front (exit 2, no report) is the stricter one; running and recording the
+  # failure is the other. What must never happen is a silent success.
+  if [ "$_rc" = "2" ] && [ ! -e "$XB/out/report.md" ]; then
+    ok "refuses up front rather than proceeding ($_case symlink)"
+  elif [ -s "$XB/out/report.md" ] && grep -q 'FAILED to copy' "$XB/out/report.md"; then
+    ok "records the escaping copy as a failure ($_case symlink)"
   else
-    bad "the escaping copy is reported as a failure ($_case symlink, no report)"
+    bad "the escape is neither refused nor recorded ($_case symlink, rc=$_rc)"
   fi
 done
 
@@ -297,32 +302,63 @@ if command -v git >/dev/null 2>&1; then
   mkdir -p "$GB/home/.claude" "$GB/proj/repo"
   echo "r" > "$GB/home/.claude/r.md"
   printf '{"mcpServers":{}}' > "$GB/home/.claude.json"
-  URL_SECRET="notarealtokenvalue0123456789"
+  # DISTINCT secrets per repo. With a shared value, repo2 alone satisfies both
+  # assertions and the user:pass case is never actually proven.
+  URL_SECRET_A="notarealtokenaaa0123456789"
+  URL_SECRET_B="notarealtokenbbb0123456789"
   mkdir -p "$GB/proj/repo2"
   ( cd "$GB/proj/repo" && git init -q . \
     && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m i \
-    && git remote add origin "https://oauth2:$URL_SECRET@example.com/o/r.git" ) >/dev/null 2>&1
-  # The colon-free form is the one most forge tokens are actually pasted in,
-  # and a redactor written only for user:pass@ sails straight past it.
+    && git remote add origin "https://oauth2:$URL_SECRET_A@example.com/o/r1.git" ) >/dev/null 2>&1
+  # The colon-free form is how most forge tokens are actually pasted, and a
+  # redactor written only for user:pass@ sails straight past it.
   ( cd "$GB/proj/repo2" && git init -q . \
     && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m i \
-    && git remote add origin "https://$URL_SECRET@example.com/o/r2.git" ) >/dev/null 2>&1
+    && git remote add origin "https://$URL_SECRET_B@example.com/o/r2.git" ) >/dev/null 2>&1
   CH_YES=1 HOME="$GB/home" OUT="$GB/out" PROJ_ROOT="$GB/proj" bash "$SCRIPT" >/dev/null 2>&1
-  if [ ! -s "$GB/out/report.md" ]; then
-    bad "a token in a git remote URL is redacted (no report produced)"
-    bad "a colon-free token URL is redacted (no report produced)"
-  elif ! grep -q 'example.com' "$GB/out/report.md"; then
-    bad "a token in a git remote URL is redacted (the remote never reached the report)"
-    bad "a colon-free token URL is redacted (the remote never reached the report)"
-  else
-    grep -q "$URL_SECRET" "$GB/out/report.md" \
-      && bad "a token in a git remote URL is redacted" \
-      || ok "a token in a git remote URL is redacted"
-    grep -q "o/r2.git" "$GB/out/report.md" \
-      && ok "a colon-free token URL is redacted" \
-      || bad "a colon-free token URL is redacted (repo2 missing from the report)"
-  fi
+  for _c in "r1:$URL_SECRET_A:user-password form" "r2:$URL_SECRET_B:colon-free token form"; do
+    _repo=${_c%%:*}; _rest=${_c#*:}; _sec=${_rest%%:*}; _label=${_rest#*:}
+    if [ ! -s "$GB/out/report.md" ]; then
+      bad "a git remote URL is redacted, $_label (no report produced)"
+    elif ! grep -q "o/$_repo.git" "$GB/out/report.md"; then
+      # Without this the absence of the secret proves nothing: the row may
+      # simply never have reached the report.
+      bad "a git remote URL is redacted, $_label (that remote never reached the report)"
+    elif grep -q "$_sec" "$GB/out/report.md"; then
+      bad "a git remote URL is redacted, $_label"
+    else
+      ok "a git remote URL is redacted, $_label"
+    fi
+  done
 fi
+
+# ---- 11e. the output folder's own paths are not written through symlinks --
+# report.md, config/, inventory/ and env-files/ are written directly, not via
+# copy_tree, so they need their own containment check.
+for _target in report.md config inventory env-files; do
+  YB="$FAKE/sym-$_target"
+  mkdir -p "$YB/home/.claude" "$YB/out" "$YB/victim"
+  echo "irreplaceable" > "$YB/victim/keep.md"
+  echo "r" > "$YB/home/.claude/r.md"
+  printf '{"mcpServers":{}}' > "$YB/home/.claude.json"
+  if [ "$_target" = "report.md" ]; then
+    echo "someone else's file" > "$YB/victim/file"
+    ln -sfn "$YB/victim/file" "$YB/out/report.md"
+  else
+    ln -sfn "$YB/victim" "$YB/out/$_target"
+  fi
+  CH_YES=1 HOME="$YB/home" OUT="$YB/out" PROJ_ROOT="$YB/none" bash "$SCRIPT" >/dev/null 2>&1
+  _rc=$?
+  if [ "$_target" = "report.md" ]; then
+    [ "$(cat "$YB/victim/file" 2>/dev/null)" = "someone else's file" ] \
+      && ok "refuses rather than truncating a symlinked $_target" \
+      || bad "refuses rather than truncating a symlinked $_target"
+  else
+    [ -f "$YB/victim/keep.md" ] && [ "$_rc" = "2" ] \
+      && ok "refuses rather than writing through a symlinked $_target/" \
+      || bad "refuses rather than writing through a symlinked $_target/ (rc=$_rc)"
+  fi
+done
 
 # ---- 12. hook commands are redacted before they reach the report --------
 # An inline hook command can carry a token, and report.md is the file people
