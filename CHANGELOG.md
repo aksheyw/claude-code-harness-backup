@@ -2,7 +2,11 @@
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [2.0.0] - 2026-07-22
+
+A correctness release, and a breaking one. The script no longer tells you a copy succeeded when it did not, which is the failure that costs someone their work rather than their afternoon. It is also renamed, because the old name described an emergency and the tool is meant to be run every week.
+
+**Breaking, if you cloned before this:** the script is now `scripts/capture-harness.sh`, not `scripts/capture-old-laptop.sh`, and the default output folder is `~/claude-harness-backup/`, not `~/claude-migration/`. Update your command, and move or delete the old folder.
 
 ### Changed
 
@@ -44,7 +48,7 @@ First public release.
 ### Added
 
 - **`GUIDE.md`**: the full guide. Capturing a setup off an old machine, rebuilding on a new one, a configuration reference checked against the current documentation, the secrets protocol, per-project scaffolding, and the reasoning behind the design.
-- **`scripts/capture-harness.sh`**: reads a Claude Code setup and writes one output folder. Copies the authored layers, inventories projects for unpushed and untracked work, keeps credential values out of the readable report, and warns and waits for confirmation before copying anything.
+- **`scripts/capture-old-laptop.sh`**: reads a Claude Code setup and writes one output folder. Copies the authored layers, inventories projects for unpushed and untracked work, keeps credential values out of the readable report, and warns and waits for confirmation before copying anything.
 - **`templates/`**: an example environment file, a secrets inventory, a per-project instructions file, a baseline ignore file, and a project wiki schema.
 - **CI** that enforces this repo's own rules: shell syntax, shellcheck, the script staying in sync with its copy in the guide, a secret scan, and a run asserting the generated report contains no credential-shaped strings.
 
