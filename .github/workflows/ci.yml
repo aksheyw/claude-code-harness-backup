@@ -16,7 +16,7 @@ jobs:
           fetch-depth: 0
 
       - name: Shell syntax
-        run: bash -n scripts/capture-old-laptop.sh
+        run: bash -n scripts/capture-harness.sh
 
       - name: Tests
         run: bash tests/test-capture.sh
@@ -24,19 +24,19 @@ jobs:
       - name: Shellcheck
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
-          shellcheck -S warning scripts/capture-old-laptop.sh
+          shellcheck -S warning scripts/capture-harness.sh
 
       - name: Script matches the copy embedded in GUIDE.md
         run: |
           python3 - <<'PY'
           import pathlib, sys
           g = pathlib.Path("GUIDE.md").read_text()
-          s = pathlib.Path("scripts/capture-old-laptop.sh").read_text()
-          i = g.index("<summary><b>capture-old-laptop.sh</b>")
+          s = pathlib.Path("scripts/capture-harness.sh").read_text()
+          i = g.index("<summary><b>capture-harness.sh</b>")
           fo = g.index("```bash", i) + 8
           fc = g.index("\n```\n", fo)
           if g[fo:fc].strip() != s.strip():
-              sys.exit("GUIDE.md's embedded script has drifted from scripts/capture-old-laptop.sh")
+              sys.exit("GUIDE.md's embedded script has drifted from scripts/capture-harness.sh")
           print("in sync")
           PY
 
@@ -71,7 +71,7 @@ jobs:
           # Run the capture non-interactively against this runner, then assert
           # the readable report has no credential-shaped strings in it. This is
           # the one promise the README and SECURITY both make.
-          CH_YES=1 OUT=/tmp/ci-capture PROJ_ROOT="$GITHUB_WORKSPACE" bash scripts/capture-old-laptop.sh >/dev/null 2>&1 || true
+          CH_YES=1 OUT=/tmp/ci-capture PROJ_ROOT="$GITHUB_WORKSPACE" bash scripts/capture-harness.sh >/dev/null 2>&1 || true
           if [ ! -f /tmp/ci-capture/report.md ]; then
             echo "::error::capture produced no report"; exit 1
           fi

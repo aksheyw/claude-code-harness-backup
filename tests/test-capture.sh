@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # test-capture.sh: asserts the promises the README and SECURITY.md make
-# about scripts/capture-old-laptop.sh.
+# about scripts/capture-harness.sh.
 #
 #   bash tests/test-capture.sh
 #
@@ -9,7 +9,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCRIPT="$HERE/scripts/capture-old-laptop.sh"
+SCRIPT="$HERE/scripts/capture-harness.sh"
 PASS=0; FAIL=0
 
 ok()   { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -105,13 +105,143 @@ python3 - "$HERE" <<'PY'
 import pathlib, sys
 h = pathlib.Path(sys.argv[1])
 g = (h / "GUIDE.md").read_text()
-s = (h / "scripts/capture-old-laptop.sh").read_text()
-i = g.index("<summary><b>capture-old-laptop.sh</b>")
+s = (h / "scripts/capture-harness.sh").read_text()
+i = g.index("<summary><b>capture-harness.sh</b>")
 fo = g.index("```bash", i) + 8
 fc = g.index("\n```\n", fo)
 sys.exit(0 if g[fo:fc].strip() == s.strip() else 1)
 PY
 [ $? -eq 0 ] && ok "GUIDE.md copy matches the script" || bad "GUIDE.md copy matches the script"
+
+# ---- 8. a .gitignore is written, and it covers the secret-bearing paths --
+# Ordering is the point: it must exist before a first `git add -A` can run.
+if [ -f "$OUT/.gitignore" ]; then
+  ok "writes a .gitignore into the output folder"
+  miss=""
+  for pat in 'config/claude.json.SECRET' 'env-files/' 'config/settings.json'; do
+    grep -qxF "$pat" "$OUT/.gitignore" || miss="$miss $pat"
+  done
+  [ -z "$miss" ] && ok "the .gitignore excludes the secret-bearing paths" \
+    || bad "the .gitignore excludes the secret-bearing paths (missing:$miss)"
+  # and prove it actually works, rather than trusting the text
+  if command -v git >/dev/null 2>&1; then
+    ( cd "$OUT" && git init -q . >/dev/null 2>&1 && git add -A >/dev/null 2>&1
+      if git status --porcelain 2>/dev/null | grep -qE 'claude\.json\.SECRET|env-files/|config/settings'; then
+        exit 1
+      fi ) && ok "git add -A in the output folder stages no secret file" \
+           || bad "git add -A in the output folder stages no secret file"
+    rm -rf "$OUT/.git"
+  fi
+else
+  bad "writes a .gitignore into the output folder"
+  bad "the .gitignore excludes the secret-bearing paths (no file)"
+fi
+
+# ---- 9. re-run safety, and the additive-vs-mirror distinction -----------
+# The script is documented as safe to re-run and as the basis of a weekly
+# backup, so both halves of that promise get asserted here.
+SB="$FAKE/rerun"
+mkdir -p "$SB/home/.claude/rules" "$SB/proj"
+echo "keep" > "$SB/home/.claude/rules/keep.md"
+echo "drop" > "$SB/home/.claude/rules/drop.md"
+printf '{"mcpServers":{}}' > "$SB/home/.claude.json"
+# `env` matters here: a VAR=val word arriving via "$@" is NOT treated as an
+# assignment, because bash resolves those at parse time. Without env, passing
+# CH_SYNC=1 would try to run a command by that name and the script would
+# never execute, which reads as a passing additive-mode test and a failing
+# mirror-mode one.
+run_sb() { env CH_YES=1 HOME="$SB/home" OUT="$SB/out" PROJ_ROOT="$SB/proj" "$@" bash "$SCRIPT" >/dev/null 2>&1; }
+
+run_sb
+hdr=$(grep -c '^# Claude Code harness capture' "$SB/out/report.md" 2>/dev/null | tr -d ' ')
+run_sb
+hdr2=$(grep -c '^# Claude Code harness capture' "$SB/out/report.md" 2>/dev/null | tr -d ' ')
+check "${hdr:-0}" "1" "one run writes exactly one report header"
+check "${hdr2:-0}" "1" "re-running rewrites the report, it does not append"
+
+# default mode is additive: a deleted source file STAYS in the copy
+rm -f "$SB/home/.claude/rules/drop.md"
+run_sb
+[ -f "$SB/out/claude/rules/drop.md" ] \
+  && ok "default mode is additive (a deleted file remains in the copy)" \
+  || bad "default mode is additive (a deleted file remains in the copy)"
+
+# mirror mode propagates the deletion, which is what makes a weekly backup honest
+run_sb CH_SYNC=1
+[ -f "$SB/out/claude/rules/drop.md" ] \
+  && bad "CH_SYNC=1 mirrors deletions" \
+  || ok "CH_SYNC=1 mirrors deletions"
+[ -f "$SB/out/claude/rules/keep.md" ] \
+  && ok "CH_SYNC=1 keeps the files that still exist" \
+  || bad "CH_SYNC=1 keeps the files that still exist"
+
+# ---- 10. mirror mode refuses an unsafe destination ---------------------
+# --delete is the only thing here that can remove a file, so the guard that
+# stops it pointing at a home directory is load-bearing, not decorative.
+CH_YES=1 CH_SYNC=1 HOME="$SB/home" OUT="$SB/home" bash "$SCRIPT" >/dev/null 2>&1
+check "$?" "2" "CH_SYNC refuses when OUT is the home directory"
+[ -f "$SB/home/report.md" ] && bad "the refusal writes nothing into that directory" \
+  || ok "the refusal writes nothing into that directory"
+CH_YES=1 CH_SYNC=1 HOME="$SB/home" OUT="$SB" bash "$SCRIPT" >/dev/null 2>&1
+check "$?" "2" "CH_SYNC refuses when OUT is an ancestor of home"
+
+# ---- 11. THE failure promise: a copy that fails is never reported as done
+# This is the whole reason the script counts failures. People read this
+# report and then erase a disk.
+FB="$FAKE/failure"
+mkdir -p "$FB/home/.claude/rules" "$FB/proj"
+echo "r" > "$FB/home/.claude/rules/a.md"
+printf '{"mcpServers":{}}' > "$FB/home/.claude.json"
+chmod 000 "$FB/home/.claude.json"          # the single highest-value file
+CH_YES=1 HOME="$FB/home" OUT="$FB/out" PROJ_ROOT="$FB/proj" bash "$SCRIPT" >/dev/null 2>&1
+FRC=$?
+chmod 644 "$FB/home/.claude.json" 2>/dev/null || true
+# root can read a 000 file, so on a root runner this scenario cannot arise.
+if [ "$(id -u)" = "0" ]; then
+  ok "SKIPPED failure-path assertions (running as root; chmod 000 is not a barrier)"
+else
+  check "$FRC" "1" "a failed copy makes the script exit 1"
+  if [ -f "$FB/out/report.md" ]; then
+    grep -q 'FAILED to copy' "$FB/out/report.md" \
+      && ok "the report names the failed copy" || bad "the report names the failed copy"
+    # the actual bug this replaced: the report claimed success for a file it never copied
+    grep -q '^- Copied .*claude\.json' "$FB/out/report.md" \
+      && bad "the report must NOT claim it copied the file that failed" \
+      || ok "the report does not claim it copied the file that failed"
+    [ -f "$FB/out/config/claude.json.SECRET" ] \
+      && bad "no phantom output file for a failed copy" \
+      || ok "no phantom output file for a failed copy"
+  else
+    bad "the report names the failed copy (no report produced)"
+    bad "the report does not claim it copied the file that failed (no report)"
+    bad "no phantom output file for a failed copy (no report)"
+  fi
+fi
+
+# ---- 12. hook commands are redacted before they reach the report --------
+# An inline hook command can carry a token, and report.md is the file people
+# paste into an issue. Values go, structure stays.
+HB="$FAKE/hooks"
+mkdir -p "$HB/home/.claude" "$HB/proj"
+HOOK_SECRET="notarealsecretvalue0123456789"
+cat > "$HB/home/.claude/settings.json" <<JSON
+{"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"notify --auth AUTH_TOKEN=$HOOK_SECRET"}]}]}}
+JSON
+printf '{"mcpServers":{}}' > "$HB/home/.claude.json"
+CH_YES=1 HOME="$HB/home" OUT="$HB/out" PROJ_ROOT="$HB/proj" bash "$SCRIPT" >/dev/null 2>&1
+if [ ! -s "$HB/out/report.md" ]; then
+  bad "hook commands are redacted in the report (no report produced)"
+elif ! grep -q 'notify --auth' "$HB/out/report.md"; then
+  # Guard against a vacuous pass: if the command never reached the report at
+  # all, "the secret is absent" proves nothing about the redactor.
+  bad "hook commands are redacted (the command never reached the report, cannot assert)"
+else
+  grep -q "$HOOK_SECRET" "$HB/out/report.md" \
+    && bad "hook commands are redacted in the report" \
+    || ok "hook commands are redacted in the report"
+  grep -q 'AUTH_TOKEN=<REDACTED>' "$HB/out/report.md" \
+    && ok "redaction keeps the command readable" || bad "redaction keeps the command readable"
+fi
 
 echo
 echo "  $PASS passed, $FAIL failed"

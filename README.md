@@ -29,7 +29,7 @@ That's why this repo spends as much time on secrets as on copying. Backing up a 
 | Path | What it is |
 |---|---|
 | [`GUIDE.md`](GUIDE.md) | The full guide. Capture, rebuild, a configuration reference I checked against the current docs, the secrets protocol, and the reasoning behind the design |
-| [`scripts/capture-old-laptop.sh`](scripts/capture-old-laptop.sh) | The script you run on the old machine. It reads your setup and writes a report of what's about to be lost |
+| [`scripts/capture-harness.sh`](scripts/capture-harness.sh) | The script. Reads your setup and writes a report of what's about to be lost. Run it once before a wipe, or weekly as a backup |
 | [`templates/`](templates/) | Copy-paste starting points: an example environment file, a secrets inventory, a per-project instructions file, a baseline ignore file, and a project wiki schema |
 
 ## Start here
@@ -40,7 +40,7 @@ Pick the line that describes you, because they lead to different places, and doi
 
 ```bash
 git clone https://github.com/aksheyw/claude-code-harness-backup.git
-bash claude-code-harness-backup/scripts/capture-old-laptop.sh
+bash claude-code-harness-backup/scripts/capture-harness.sh
 ```
 
 It doesn't touch your setup. The only thing it writes is its own output folder, and it never edits or deletes anything in `~/.claude/`, and never pushes anywhere. It tells you what to fix before you wipe. Then read [Part 2 of the guide](GUIDE.md#part-2-capture-the-old-machine).
@@ -48,6 +48,14 @@ It doesn't touch your setup. The only thing it writes is its own output folder, 
 **The old machine is already gone.** Start at [Part 3](GUIDE.md#part-3-rebuild-on-the-new-machine) and work from whatever backup you've got. Some of it you won't get back, and the guide says which parts instead of pretending there's a trick.
 
 **You're setting up from scratch, or you want a better harness.** Skip the migration. [Part 5](GUIDE.md#part-5-the-layers-in-detail) builds the layers up in the order they become worth having, and [Part 9](GUIDE.md#part-9-principles-worth-stealing) is why it's shaped that way.
+
+**Nothing is wrong, you just want this backed up every week.** This is the one most people should end up on, and it's the same script on a schedule rather than a separate tool. Re-running it is safe: the report is rewritten each time and the copies are updated in place.
+
+```bash
+CH_SYNC=1 CH_YES=1 bash claude-code-harness-backup/scripts/capture-harness.sh
+```
+
+`CH_SYNC=1` mirrors deletions, so a rule you delete stops living in the backup forever. `CH_YES=1` skips the prompt so it can run unattended. Then commit the output folder to a **private** repo for history. The script writes a `.gitignore` excluding the credential-bearing files before anything can be committed. [Part 2.5](GUIDE.md#25-using-this-weekly-instead-of-once) covers the scanning you should still do yourself.
 
 **You want your AI assistant to do this for you.** Hand it `GUIDE.md` and say so. It opens with a brief written for exactly that, which tells the assistant what to do first, what to leave alone, and what to verify before it tells you it's finished.
 
@@ -57,16 +65,16 @@ Three things should be true after the script runs.
 
 ```bash
 # 1. There's a report and it isn't empty
-wc -l ~/claude-migration/report.md
+wc -l ~/claude-harness-backup/report.md
 
 # 2. The parts nobody can regenerate actually came across.
 #    Note: subagents live in a folder called `agents`.
 for d in rules skills agents commands scripts hooks memory; do
-  printf '%-10s %s files\n' "$d" "$(find -L ~/claude-migration/claude/$d -type f 2>/dev/null | wc -l)"
+  printf '%-10s %s files\n' "$d" "$(find -L ~/claude-harness-backup/claude/$d -type f 2>/dev/null | wc -l)"
 done
 
 # 3. The report itself has no secrets in it, only names and locations
-grep -cE 'sk-[A-Za-z0-9]{30,}|gh[pousr]_[A-Za-z0-9]{30,}|AIza[0-9A-Za-z_-]{30,}' ~/claude-migration/report.md
+grep -cE 'sk-[A-Za-z0-9]{30,}|gh[pousr]_[A-Za-z0-9]{30,}|AIza[0-9A-Za-z_-]{30,}' ~/claude-harness-backup/report.md
 ```
 
 That last one has to print `0`. Your real secrets do get copied into the folder, on purpose, so the migration doesn't lose them. They're kept out of the readable report, so you can paste that report into an issue without leaking anything.
@@ -130,7 +138,7 @@ Found a security problem in this repo? Use [SECURITY.md](SECURITY.md), not a pub
 **The project table is empty, or it says no folder found.** The script looks in `~/Documents/Claude Code` by default. Point it wherever you actually keep projects:
 
 ```bash
-PROJ_ROOT="$HOME/code" bash scripts/capture-old-laptop.sh
+PROJ_ROOT="$HOME/code" bash scripts/capture-harness.sh
 ```
 
 **It says `command not found: jq`.** `jq` is a small command-line tool for reading JSON, which is the format Claude Code stores its config in. The script still runs without it, but it can't read your settings, so most of the report goes missing. `brew install jq` on macOS, `apt install jq` on Debian and Ubuntu, then run it again.
