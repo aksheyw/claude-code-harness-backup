@@ -304,19 +304,19 @@ if command -v git >/dev/null 2>&1; then
   printf '{"mcpServers":{}}' > "$GB/home/.claude.json"
   # DISTINCT secrets per repo. With a shared value, repo2 alone satisfies both
   # assertions and the user:pass case is never actually proven.
-  URL_SECRET_A="notarealtokenaaa0123456789"
-  URL_SECRET_B="notarealtokenbbb0123456789"
+  URL_FIXTURE_A="notarealtokenaaa0123456789"
+  URL_FIXTURE_B="notarealtokenbbb0123456789"
   mkdir -p "$GB/proj/repo2"
   ( cd "$GB/proj/repo" && git init -q . \
     && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m i \
-    && git remote add origin "https://oauth2:$URL_SECRET_A@example.com/o/r1.git" ) >/dev/null 2>&1
+    && git remote add origin "https://oauth2:$URL_FIXTURE_A@example.com/o/r1.git" ) >/dev/null 2>&1
   # The colon-free form is how most forge tokens are actually pasted, and a
   # redactor written only for user:pass@ sails straight past it.
   ( cd "$GB/proj/repo2" && git init -q . \
     && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m i \
-    && git remote add origin "https://$URL_SECRET_B@example.com/o/r2.git" ) >/dev/null 2>&1
+    && git remote add origin "https://$URL_FIXTURE_B@example.com/o/r2.git" ) >/dev/null 2>&1
   CH_YES=1 HOME="$GB/home" OUT="$GB/out" PROJ_ROOT="$GB/proj" bash "$SCRIPT" >/dev/null 2>&1
-  for _c in "r1:$URL_SECRET_A:user-password form" "r2:$URL_SECRET_B:colon-free token form"; do
+  for _c in "r1:$URL_FIXTURE_A:user-password form" "r2:$URL_FIXTURE_B:colon-free token form"; do
     _repo=${_c%%:*}; _rest=${_c#*:}; _sec=${_rest%%:*}; _label=${_rest#*:}
     if [ ! -s "$GB/out/report.md" ]; then
       bad "a git remote URL is redacted, $_label (no report produced)"
@@ -341,9 +341,9 @@ if command -v jq >/dev/null 2>&1; then
   echo "r" > "$MB2/home/.claude/r.md"
   printf '{"mcpServers":{}}' > "$MB2/home/.claude.json"
   printf '{"hooks":{},"enabledPlugins":{}}' > "$MB2/home/.claude/settings.json"
-  MKT_SECRET="notarealmarketplacetoken0123456789"
+  MKT_FIXTURE="notarealmarketplacetoken0123456789"
   cat > "$MB2/home/.claude/plugins/known_marketplaces.json" <<JSON
-{"demo-market":{"source":{"source":"github","repo":"https://$MKT_SECRET@example.com/org/market.git"}}}
+{"demo-market":{"source":{"source":"github","repo":"https://$MKT_FIXTURE@example.com/org/market.git"}}}
 JSON
   CH_YES=1 HOME="$MB2/home" OUT="$MB2/out" PROJ_ROOT="$MB2/proj" bash "$SCRIPT" >/dev/null 2>&1
   if [ ! -s "$MB2/out/report.md" ]; then
@@ -351,7 +351,7 @@ JSON
   elif ! grep -q 'demo-market' "$MB2/out/report.md"; then
     bad "a colon-free token in a marketplace URL is redacted (the entry never reached the report)"
   else
-    grep -q "$MKT_SECRET" "$MB2/out/report.md" \
+    grep -q "$MKT_FIXTURE" "$MB2/out/report.md" \
       && bad "a colon-free token in a marketplace URL is redacted" \
       || ok "a colon-free token in a marketplace URL is redacted"
   fi
@@ -407,9 +407,9 @@ done
 # paste into an issue. Values go, structure stays.
 HB="$FAKE/hooks"
 mkdir -p "$HB/home/.claude" "$HB/proj"
-HOOK_SECRET="notarealsecretvalue0123456789"
+HOOK_FIXTURE="notarealsecretvalue0123456789"
 cat > "$HB/home/.claude/settings.json" <<JSON
-{"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"notify --auth AUTH_TOKEN=$HOOK_SECRET"}]}]}}
+{"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"notify --auth AUTH_TOKEN=$HOOK_FIXTURE"}]}]}}
 JSON
 printf '{"mcpServers":{}}' > "$HB/home/.claude.json"
 CH_YES=1 HOME="$HB/home" OUT="$HB/out" PROJ_ROOT="$HB/proj" bash "$SCRIPT" >/dev/null 2>&1
@@ -420,7 +420,7 @@ elif ! grep -q 'notify --auth' "$HB/out/report.md"; then
   # all, "the secret is absent" proves nothing about the redactor.
   bad "hook commands are redacted (the command never reached the report, cannot assert)"
 else
-  grep -q "$HOOK_SECRET" "$HB/out/report.md" \
+  grep -q "$HOOK_FIXTURE" "$HB/out/report.md" \
     && bad "hook commands are redacted in the report" \
     || ok "hook commands are redacted in the report"
   grep -q 'AUTH_TOKEN=<REDACTED>' "$HB/out/report.md" \
