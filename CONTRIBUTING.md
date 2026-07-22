@@ -2,7 +2,7 @@
 
 Corrections are welcome, especially from anyone who ran this on something that isn't a Mac.
 
-The bar is high in one place. `scripts/capture-old-laptop.sh` runs on a machine that's about to be erased, and people act on what it tells them, so if it says something is backed up when it isn't, someone loses work permanently and doesn't find out for weeks. That means changes to what it copies, or to what the report claims, have to be demonstrably correct. Plausible isn't enough.
+The bar is high in one place. `scripts/capture-harness.sh` runs on a machine that's about to be erased, and people act on what it tells them, so if it says something is backed up when it isn't, someone loses work permanently and doesn't find out for weeks. That means changes to what it copies, or to what the report claims, have to be demonstrably correct. Plausible isn't enough.
 
 Everything else, the prose and the templates and the platform notes, is much lower stakes. Send those freely.
 
@@ -11,7 +11,7 @@ Everything else, the prose and the templates and the platform notes, is much low
 There's no build and nothing to install beyond a POSIX shell. To test a change safely, send the output somewhere disposable:
 
 ```bash
-OUT=/tmp/capture-test bash scripts/capture-old-laptop.sh
+OUT=/tmp/capture-test bash scripts/capture-harness.sh
 ```
 
 Then check three things:

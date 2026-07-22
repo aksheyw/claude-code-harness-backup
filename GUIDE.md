@@ -2,11 +2,12 @@
 
 **Everything your Claude Code setup is made of, how to get it off a dying laptop, how to stand it back up, and how to design one worth keeping.**
 
-Three uses, in order of urgency:
+Four uses, in order of urgency:
 
 - **Moving laptops right now?** [Part 2](#part-2-capture-the-old-machine) is time-critical. Do it before the old machine is gone.
 - **Old machine already gone?** Start at [Part 3](#part-3-rebuild-on-the-new-machine).
 - **Building from scratch?** Start at [Part 5](#part-5-the-layers-in-detail).
+- **Nothing wrong, you just want this backed up every week?** Same script, on a schedule. See [Part 2.5](#25-using-this-weekly-instead-of-once).
 
 > **What you need to run this.** A POSIX shell, which means the macOS Terminal, any Linux shell, or WSL or Git Bash on Windows. Native PowerShell and `cmd` are not supported, so on Windows use WSL. Where a command differs between macOS and Linux, both versions are given.
 
@@ -93,31 +94,40 @@ Your operating system's credential store is the macOS Keychain, gnome-keyring or
 
 This script is **read-only**. It does not modify `~/.claude`, does not delete anything, and does not push anywhere. It writes one folder containing a report plus copies of your config.
 
-Save it as `capture-old-laptop.sh` on the old machine and run:
+It is also **safe to re-run**. The report is rewritten from scratch each time and the copies are updated in place, so the same script covers both the panic before a wipe and an ordinary weekly backup. If you are here because a machine is dying, keep reading. If nothing is wrong and you just want this backed up regularly, read this section anyway and then go to [Part 2.5](#25-using-this-weekly-instead-of-once).
+
+Save it as `capture-harness.sh` and run:
 
 ```bash
-bash capture-old-laptop.sh
+bash capture-harness.sh
 ```
 
 If your projects do not live in `~/Documents/Claude Code`, point it at the right place:
 
 ```bash
-PROJ_ROOT="$HOME/code" bash capture-old-laptop.sh
+PROJ_ROOT="$HOME/code" bash capture-harness.sh
 ```
 
 <details>
-<summary><b>capture-old-laptop.sh</b> (click to expand)</summary>
+<summary><b>capture-harness.sh</b> (click to expand)</summary>
 
 ```bash
 #!/usr/bin/env bash
-# capture-old-laptop.sh: READ-ONLY inventory of a Claude Code setup.
+# capture-harness.sh: READ-ONLY capture of a Claude Code setup.
 #
-# Run this on the OLD laptop, BEFORE wiping it. It changes nothing: it only
-# reads, and writes a report + a copy of your config into ONE output folder.
+# Two ways to use it, and most people end up on the second:
 #
-#   bash capture-old-laptop.sh
+#   1. ONCE, before you wipe a machine. Read the report, fix every warning,
+#      move the folder to the new laptop over an encrypted channel.
 #
-# Output: ~/claude-migration/  (report.md + config copies + inventories)
+#   2. EVERY WEEK, as an ongoing backup. Re-running is safe and expected: the
+#      report is rewritten from scratch each run and the copies are updated in
+#      place. Commit the folder to a PRIVATE git repo and you have history.
+#      See "Using this weekly" below.
+#
+#   bash capture-harness.sh
+#
+# Output: ~/claude-harness-backup/  (report.md + the authored layers + config)
 # It does NOT push anything anywhere and does NOT touch ~/.claude.
 #
 # WHAT IT COPIES: the authored ~/.claude layers (rules, agents, commands,
@@ -127,23 +137,169 @@ PROJ_ROOT="$HOME/code" bash capture-old-laptop.sh
 #
 # WARNING: the output folder WILL contain secrets (~/.claude.json and your
 # .env files are copied verbatim, so nothing is lost). Move it with an
-# encrypted disk / AirDrop / password manager. Do NOT git-push this folder.
+# encrypted disk / AirDrop / password manager.
+#
+# ---- Using this weekly -------------------------------------------------
+#
+#   CH_SYNC=1 bash capture-harness.sh
+#
+# CH_SYNC=1 turns on mirror mode: a file you DELETED from ~/.claude is also
+# removed from the copy, so the folder stays a mirror instead of growing into
+# an archive of things you got rid of on purpose. It is off by default because
+# it is the only part of this script that can delete anything, and it refuses
+# to run if the output folder is your home directory or an ancestor of it.
+#
+# For history, commit the folder to a PRIVATE repo. The script writes a
+# .gitignore into the folder first, so the credential-bearing files are
+# excluded before you can commit them:
+#
+#   cd ~/claude-harness-backup && git init && git add -A && git commit -m backup
+#
+# Read that .gitignore before your first push, and scan the folder for secrets
+# yourself. Your own rules and memory files can contain credentials that this
+# script has no way to recognise. The repo must be PRIVATE either way.
+#
+# ---- Exit codes --------------------------------------------------------
+#   0  everything this script tried to copy, it copied
+#   1  at least one copy FAILED; the report says which. Do not wipe anything
+#      until you have resolved them.
+#   2  refused to start (mirror mode with an unsafe output folder)
 
+# No `set -e` on purpose: one unreadable file must not abort the whole
+# capture, because a partial report is still useful. Instead every copy is
+# checked and counted, and a non-zero FAILURES makes the script exit 1. A
+# tool whose output tells you what is safe to delete has to fail loudly.
 set -uo pipefail
 
-OUT="${OUT:-$HOME/claude-migration}"
+OUT="${OUT:-$HOME/claude-harness-backup}"
 # Where your project folders live. Override if yours are elsewhere:
-#   PROJ_ROOT="$HOME/code" bash capture-old-laptop.sh
+#   PROJ_ROOT="$HOME/code" bash capture-harness.sh
 PROJ_ROOT="${PROJ_ROOT:-$HOME/Documents/Claude Code}"
 TILDE="~"
 R="$OUT/report.md"
-mkdir -p "$OUT/config" "$OUT/inventory"
 
-say() { printf '%s\n' "$*" >> "$R"; }
+# ---- Mirror mode: refuse unsafe destinations BEFORE deleting anything ----
+# The checks below compare RESOLVED physical paths, not the strings the user
+# typed. A string comparison is trivially defeated by a trailing slash, by a
+# `..` segment, or by an OUT that is a symlink to somewhere important, and the
+# thing on the other side of that check is `rsync --delete`.
+RSYNC_OPTS=(-a --copy-links)
+SYNC_MODE="off"
+mkdir -p "$OUT" 2>/dev/null
+OUT_P=$(cd "$OUT" 2>/dev/null && pwd -P)
+HOME_P=$(cd "$HOME" 2>/dev/null && pwd -P)
+if [ "${CH_SYNC:-0}" = "1" ]; then
+  if [ -z "$OUT_P" ]; then
+    printf 'refusing: cannot resolve OUT (%s)\n' "${OUT:-empty}" >&2; exit 2
+  fi
+  if [ "$OUT_P" = "/" ]; then
+    printf 'refusing: OUT resolves to /, which is not a safe mirror target\n' >&2; exit 2
+  fi
+  if [ -n "$HOME_P" ] && [ "$OUT_P" = "$HOME_P" ]; then
+    printf 'refusing: OUT resolves to your home directory (%s); mirror mode would delete inside it\n' "$OUT_P" >&2
+    exit 2
+  fi
+  case "$HOME_P" in
+    "$OUT_P"/*) printf 'refusing: OUT (%s) contains your home directory\n' "$OUT_P" >&2; exit 2 ;;
+  esac
+  # Mirror mode is rsync-only. Falling back to `cp` would copy without
+  # deleting, so the run would report "mirror" while quietly not mirroring.
+  if ! command -v rsync >/dev/null 2>&1; then
+    printf 'refusing: CH_SYNC=1 needs rsync, which is not installed.\n' >&2
+    printf '          Install rsync, or re-run without CH_SYNC for an additive copy.\n' >&2
+    exit 2
+  fi
+  RSYNC_OPTS+=(--delete)
+  SYNC_MODE="on"
+fi
+
+# A symlink ANYWHERE under the output folder can redirect a write, or in
+# mirror mode a delete, to a file this script was never pointed at. Listing
+# the paths to check does not work: every list is correct until someone puts
+# a link one level deeper than the list goes. So assert the invariant instead.
+#
+# The invariant holds by construction: every copy here dereferences (rsync
+# --copy-links, cp -RL), so a folder this script produced contains no symlinks
+# at all. One found means the folder was arranged by something else, and the
+# safe response is to stop rather than to guess which ones are harmless.
+if _link=$(find "$OUT" -type l -print 2>/dev/null | head -1) && [ -n "$_link" ]; then
+  printf 'refusing: %s is a symlink.\n' "$_link" >&2
+  printf '          Writing here would modify whatever it points at, which may be\n' >&2
+  printf '          outside this folder. This script never creates symlinks, so it\n' >&2
+  printf '          did not put that there. Remove it, or choose a different OUT.\n' >&2
+  exit 2
+fi
+
+mkdir -p "$OUT/config" "$OUT/inventory"
+ERRLOG="$OUT/inventory/errors.log"
+: > "$ERRLOG"
+
+FAILURES=0
+say()  { printf '%s\n' "$*" >> "$R"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# Record a copy that did not happen. Loud in the report, counted for the
+# exit code. This is the difference between a backup and a belief.
+fail() {
+  FAILURES=$((FAILURES + 1))
+  say "- **FAILED to copy \`$1\`. It is NOT in this folder.** See \`inventory/errors.log\`."
+}
+
+# copy_tree <src-dir> <dest-dir> ; honours mirror mode
+copy_tree() {
+  # Everything this writes to, and in mirror mode deletes in, must physically
+  # live inside the output folder. Checking only the leaf is not enough: a
+  # symlink at ANY level above it (say OUT/claude pointing at your home
+  # directory) leaves the leaf looking like an ordinary directory while the
+  # writes and deletes land somewhere else entirely. So resolve the parent
+  # first, before creating the leaf, and refuse if it escapes.
+  local _parent _parent_p
+  _parent=$(dirname "$2")
+  mkdir -p "$_parent" 2>>"$ERRLOG" || return 1
+  _parent_p=$(cd "$_parent" 2>/dev/null && pwd -P) || return 1
+  case "$_parent_p" in
+    "$OUT_P" | "$OUT_P"/*) : ;;
+    *)
+      printf 'destination escapes the output folder, refusing: %s resolves to %s\n' \
+        "$_parent" "$_parent_p" >>"$ERRLOG"
+      return 1 ;;
+  esac
+  # And the leaf itself must not be a symlink, for the same reason.
+  if [ -L "$2" ]; then
+    printf 'destination is a symlink, refusing to write through it: %s\n' "$2" >>"$ERRLOG"
+    return 1
+  fi
+  rsync "${RSYNC_OPTS[@]}" "$1/" "$2/" 2>>"$ERRLOG" && return 0
+  # In mirror mode a `cp` fallback would copy without deleting, so the folder
+  # would stop being a mirror while still claiming to be one. Fail instead.
+  [ "$SYNC_MODE" = "on" ] && return 1
+  # rsync may be absent (common on minimal Linux). -L follows symlinks, which
+  # matters because ~/.claude/skills is very often a link to a repo elsewhere.
+  # `$1/.` copies the CONTENTS: plain `cp -RL "$1" "$2"` would nest the source
+  # inside an existing destination on the second run (claude/rules/rules/).
+  mkdir -p "$2" 2>>"$ERRLOG" && cp -RL "$1/." "$2/" 2>>"$ERRLOG" && return 0
+  return 1
+}
+
+# Strip credentials embedded in a URL. report.md is meant to be shareable,
+# and a remote URL is one of the few places a live token reaches it without
+# anyone intending to put it there. Two forms, and the second is easy to
+# forget: `https://user:token@host` AND `https://token@host` with no colon
+# at all, which is how most forge tokens are actually pasted.
+REDACT_URL_SED='s#://[^/@[:space:]]*:[^/@[:space:]]*@#://<REDACTED>@#g; s#://[^/@[:space:]]+@#://<REDACTED>@#g'
+redact_url() { printf '%s' "$1" | sed -E "$REDACT_URL_SED"; }
+
+# copy_file <src> <dest> <label>
+copy_file() {
+  if cp "$1" "$2" 2>>"$ERRLOG"; then
+    say "- Copied \`$3\` -> \`${2#"$OUT"/}\`"
+  else
+    fail "$3"
+  fi
+}
+
 # ---- Warn BEFORE copying anything, not after. ----
-# Set CH_YES=1 to skip the prompt (for non-interactive use).
+# Set CH_YES=1 to skip the prompt (for non-interactive and scheduled use).
 cat <<EOF
 
   This script is READ-ONLY toward your setup: it never edits or deletes
@@ -156,11 +312,12 @@ cat <<EOF
     - ~/.claude.json        (may contain MCP tokens)
     - every .env file under $PROJ_ROOT
 
-  That output folder is NOT encrypted. After it is written you must:
-    1. move it to the new machine over an encrypted channel, and
-    2. delete it from this machine.
+  That output folder is NOT encrypted. Keep it on this machine only, or
+  move it over an encrypted channel. If you commit it for history, the
+  repo must be PRIVATE. A .gitignore excluding the files above is written
+  into the folder for you.
 
-  Never git-push that folder.
+  Mirror mode (deletes removed files from the copy): $SYNC_MODE
 
 EOF
 if [ "${CH_YES:-0}" != "1" ]; then
@@ -169,19 +326,45 @@ if [ "${CH_YES:-0}" != "1" ]; then
   printf '\n'
 fi
 
+# ---- A .gitignore, written BEFORE anything can be committed --------------
+# Ordering is the whole point. Adding this after a first `git add -A` would
+# be too late: git history does not forget a credential you committed once.
+cat > "$OUT/.gitignore" <<'EOF'
+# Written by capture-harness.sh, so that `git init && git add -A` in this
+# folder cannot commit a credential. Read this file before your first push.
+#
+# These are secret-bearing by design:
+config/claude.json.SECRET
+env-files/
+
+# settings.json is genuinely useful to version (hooks, permissions) but it
+# CAN carry tokens in env blocks. It is excluded by default. If you have
+# checked yours and it is clean, delete these two lines.
+config/settings.json
+config/settings.local.json
+
+# Local noise
+.DS_Store
+inventory/errors.log
+EOF
+
 : > "$R"
-say "# Claude Code migration capture"
+say "# Claude Code harness capture"
 say ""
 say "- Host: \`$(hostname)\`"
 say "- User: \`$(whoami)\`"
 say "- Date: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 say "- macOS/OS: \`$(uname -srm)\`"
+say "- Mirror mode (\`CH_SYNC\`): \`$SYNC_MODE\`"
 say ""
-say "> Generated by capture-old-laptop.sh (read-only inventory)."
+say "> Generated by capture-harness.sh (read-only capture). Safe to re-run:"
+say "> this report is rewritten from scratch each time and the copies are"
+say "> updated in place. Run it weekly and commit the folder to a PRIVATE"
+say "> repo if you want history."
 say ""
 
 # ---------------------------------------------------------------- 1. versions
-say "## 1. Tool versions on the old machine"
+say "## 1. Tool versions on this machine"
 say ""
 say '```'
 for t in claude node npm git gh python3 rsync jq gitleaks codex agy brew; do
@@ -194,6 +377,14 @@ for t in claude node npm git gh python3 rsync jq gitleaks codex agy brew; do
 done
 say '```'
 say ""
+if ! have rsync; then
+  say "> \`rsync\` is not installed here, so the copies below use \`cp\` instead."
+  say "> That copies fine, but it cannot remove files you have deleted, so mirror"
+  say "> mode (\`CH_SYNC=1\`) refuses to run at all on this machine rather than"
+  say "> quietly producing a backup that is not a mirror. Install rsync if you"
+  say "> want the weekly workflow."
+  say ""
+fi
 
 # ---------------------------------------------------------- 2. ~/.claude tree
 say "## 2. The ~/.claude identity"
@@ -207,17 +398,26 @@ if [ -d "$HOME/.claude" ]; then
   say ""
   say "Counts (what you must see again on the new machine):"
   say ""
-  say "| Layer | Path | Count |"
-  say "|---|---|---|"
+  # This column states SCOPE (what this script tries to copy), not OUTCOME.
+  # Outcome is the copy list below plus any FAILED lines, which are the only
+  # things that reflect what actually happened. Deriving an outcome column
+  # from the source path's existence would print "yes" next to a failed copy.
+  say "| Layer | Path | Count | In scope? |"
+  say "|---|---|---|---|"
   for d in agents commands rules skills hooks scripts memory plugins scheduled-tasks; do
     p="$HOME/.claude/$d"
+    # `plugins` is inventoried but deliberately NOT copied: it is mostly
+    # marketplace clones that reinstall from the lockfile in section 5, and it
+    # can run to gigabytes. Saying so in the table stops it reading as backed up.
+    copied="yes, see the copy list below"
+    [ "$d" = "plugins" ] && copied="**no**, reinstalled (see section 5)"
     if [ -e "$p" ]; then
       n=$(find -L "$p" -type f 2>/dev/null | wc -l | tr -d ' ')
       link=""
-      [ -L "$p" ] && link=" (symlink → $(readlink "$p"))"
-      say "| $d | \`~/.claude/$d\`$link | $n files |"
+      [ -L "$p" ] && link=" (symlink -> $(readlink "$p"))"
+      say "| $d | \`~/.claude/$d\`$link | $n files | $copied |"
     else
-      say "| $d | \`~/.claude/$d\` | absent |"
+      say "| $d | \`~/.claude/$d\` | absent | n/a |"
     fi
   done
   say ""
@@ -235,21 +435,26 @@ if [ -d "$HOME/.claude" ]; then
   for d in rules agents commands memory scripts hooks scheduled-tasks docs; do
     src="$HOME/.claude/$d"
     if [ -d "$src" ]; then
-      rsync -a --copy-links "$src/" "$OUT/claude/$d/" 2>/dev/null \
-        || cp -RL "$src" "$OUT/claude/$d" 2>/dev/null
-      say "- \`$d/\` -> \`claude/$d/\` ($(find -L "$OUT/claude/$d" -type f 2>/dev/null | wc -l | tr -d ' ') files)"
+      if copy_tree "$src" "$OUT/claude/$d"; then
+        say "- \`$d/\` -> \`claude/$d/\` ($(find -L "$OUT/claude/$d" -type f 2>/dev/null | wc -l | tr -d ' ') files)"
+      else
+        fail "$TILDE/.claude/$d"
+      fi
     fi
   done
   # skills is very often a SYMLINK to a repo elsewhere; follow it
   if [ -e "$HOME/.claude/skills" ]; then
-    rsync -a --copy-links "$HOME/.claude/skills/" "$OUT/claude/skills/" 2>/dev/null
-    say "- \`skills/\` -> \`claude/skills/\` ($(find -L "$OUT/claude/skills" -type f 2>/dev/null | wc -l | tr -d ' ') files)"
+    if copy_tree "$HOME/.claude/skills" "$OUT/claude/skills"; then
+      say "- \`skills/\` -> \`claude/skills/\` ($(find -L "$OUT/claude/skills" -type f 2>/dev/null | wc -l | tr -d ' ') files)"
+    else
+      fail "$TILDE/.claude/skills"
+    fi
     if [ -L "$HOME/.claude/skills" ]; then
       say "  (was a symlink to \`$(readlink "$HOME/.claude/skills")\`. Recreate the link on the new machine, or just use the copied folder)"
     fi
   fi
   for f in CLAUDE.md MEMORY.md; do
-    [ -f "$HOME/.claude/$f" ] && cp "$HOME/.claude/$f" "$OUT/claude/$f" && say "- \`$f\` -> \`claude/$f\`"
+    [ -f "$HOME/.claude/$f" ] && copy_file "$HOME/.claude/$f" "$OUT/claude/$f" "$TILDE/.claude/$f"
   done
 else
   say "**No ~/.claude directory found.**"
@@ -262,8 +467,7 @@ say ""
 for f in settings.json settings.local.json; do
   src="$HOME/.claude/$f"
   if [ -f "$src" ]; then
-    cp "$src" "$OUT/config/$f"
-    say "- Copied \`~/.claude/$f\` → \`config/$f\`"
+    copy_file "$src" "$OUT/config/$f" "$TILDE/.claude/$f"
     if have jq; then
       say ""
       say "  Top-level keys: \`$(jq -r 'keys | join(", ")' "$src" 2>/dev/null)\`"
@@ -275,19 +479,39 @@ done
 say ""
 say "Hook scripts referenced by settings (these must exist on the new machine or every session errors):"
 say ""
+say "> Credential-shaped text below is replaced with \`<REDACTED>\`, but that only covers"
+say "> the shapes it knows: provider key prefixes, \`NAME=value\`, auth headers, and URLs"
+say "> with credentials in them. A secret passed as a bare argument, say \`--token abc123\`,"
+say "> looks like an ordinary word and survives. **Read this block before you paste this"
+say "> report anywhere.**"
+say ""
 say '```'
 if have jq && [ -f "$HOME/.claude/settings.json" ]; then
-  jq -r '.. | .command? | if type=="array" then join(" ") elif type=="string" then . else empty end' "$HOME/.claude/settings.json" 2>/dev/null | sort -u >> "$R"
+  # Redact anything credential-shaped. A hook can legitimately be an inline
+  # command, and an inline command can carry a token. Unlike the copied
+  # config files, report.md is the part people paste into a chat or a ticket.
+  jq -r '.. | .command? | if type=="array" then join(" ") elif type=="string" then . else empty end' "$HOME/.claude/settings.json" 2>/dev/null \
+    | sed -E \
+        -e 's/(sk-[A-Za-z0-9_-]{8})[A-Za-z0-9_-]+/\1<REDACTED>/g' \
+        -e 's/(gh[pousr]_)[A-Za-z0-9]{10,}/\1<REDACTED>/g' \
+        -e 's/(AIza)[0-9A-Za-z_-]{10,}/\1<REDACTED>/g' \
+        -e 's/(AKIA)[0-9A-Z]{8,}/\1<REDACTED>/g' \
+        -e 's/(xox[abprs]-)[A-Za-z0-9-]{10,}/\1<REDACTED>/g' \
+        -e 's/([0-9]{8,12}:AA)[A-Za-z0-9_-]{10,}/\1<REDACTED>/g' \
+        -e 's/((KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)[A-Za-z0-9_]*=)[^[:space:]"'"'"']{8,}/\1<REDACTED>/g' \
+        -e 's/(([Bb]earer|[Aa]uthorization:?)[[:space:]]+)[A-Za-z0-9._-]{12,}/\1<REDACTED>/g' \
+        -e "$REDACT_URL_SED" \
+    | sort -u >> "$R"
 fi
 say '```'
 say ""
 
 # ------------------------------------------------------------- 4. MCP servers
-say "## 4. MCP servers  ⚠️ SECRET-BEARING"
+say "## 4. MCP servers  (SECRET-BEARING)"
 say ""
 if [ -f "$HOME/.claude.json" ]; then
-  cp "$HOME/.claude.json" "$OUT/config/claude.json.SECRET"
-  say "- Copied \`~/.claude.json\` → \`config/claude.json.SECRET\` (**contains tokens, never commit**)"
+  copy_file "$HOME/.claude.json" "$OUT/config/claude.json.SECRET" "$TILDE/.claude.json"
+  say "  (**contains tokens; gitignored for you, never commit it**)"
   if have jq; then
     # names only into the report; values stay in the copied file
     say ""
@@ -317,8 +541,18 @@ say ""
 say "Project-level \`.mcp.json\` files (committed, project-scope servers):"
 say ""
 say '```'
-find "$PROJ_ROOT" -maxdepth 3 -name '.mcp.json' -not -path '*/node_modules/*' 2>/dev/null | head -50 >> "$R"
+MCP_ALL=$(find "$PROJ_ROOT" -maxdepth 3 -name '.mcp.json' -not -path '*/node_modules/*' 2>/dev/null)
+printf '%s\n' "$MCP_ALL" | grep -v '^$' | head -50 >> "$R"
 say '```'
+# Never truncate silently. A capped list reads as a complete one, and this
+# report is used to decide what is safe to erase.
+MCP_N=$(printf '%s\n' "$MCP_ALL" | grep -c '[^[:space:]]' || true)
+if [ "${MCP_N:-0}" -gt 50 ]; then
+  say ""
+  say "> **This list is truncated at 50. $MCP_N were found.** Re-run the \`find\` above without \`head\` to see them all."
+fi
+say ""
+say "> Scope note: this search covers 3 directory levels under \`$PROJ_ROOT\`, and the \`.env\` search below covers 4. Anything deeper is not listed, so it is not evidence of absence."
 say ""
 
 # ------------------------------------------------------------- 5. plugins
@@ -329,18 +563,18 @@ INST="$HOME/.claude/plugins/installed_plugins.json"
 MKTS="$HOME/.claude/plugins/known_marketplaces.json"
 
 for f in "$INST" "$MKTS"; do
-  [ -f "$f" ] && cp "$f" "$OUT/config/$(basename "$f")" && say "- Copied \`${f/#$HOME/$TILDE}\` → \`config/$(basename "$f")\`"
+  [ -f "$f" ] && copy_file "$f" "$OUT/config/$(basename "$f")" "${f/#"$HOME"/$TILDE}"
 done
 
 if have jq && [ -f "$SET" ]; then
   say ""
-  say "Enabled plugins (from \`settings.json\` → \`enabledPlugins\`, the reinstall source of truth):"
+  say "Enabled plugins (from \`settings.json\` -> \`enabledPlugins\`, the reinstall source of truth):"
   say ""
   say '```'
   jq -r '.enabledPlugins // {} | to_entries[] | select(.value == true) | .key' "$SET" 2>/dev/null >> "$R"
   say '```'
   say ""
-  say "⚠️ **Locally-uploaded plugins are NOT reinstallable from a marketplace**. Their source exists only on this laptop. Find and copy the originals for these:"
+  say "**Locally-uploaded plugins are NOT reinstallable from a marketplace**. Their source exists only on this laptop. Find and copy the originals for these:"
   say ""
   say '```'
   jq -r '.enabledPlugins // {} | keys[] | select(test("local-upload"))' "$SET" 2>/dev/null >> "$R"
@@ -352,21 +586,23 @@ if have jq && [ -f "$MKTS" ]; then
   say "Registered marketplaces (a \`directory\` source points at a LOCAL folder you must also copy):"
   say ""
   say '```'
-  jq -r 'to_entries[] | "\(.key): \(.value.source.source // "?") \(.value.source.repo // .value.source.path // "")"' "$MKTS" 2>/dev/null >> "$R"
+  jq -r 'to_entries[] | "\(.key): \(.value.source.source // "?") \(.value.source.repo // .value.source.path // "")"' "$MKTS" 2>/dev/null \
+    | sed -E "$REDACT_URL_SED" >> "$R"
   say '```'
 fi
 
 if have jq && [ -f "$INST" ] && [ -f "$SET" ]; then
   say ""
-  say "⚠️ Enabled but NOT installed (stale references, do not try to reinstall these):"
+  say "Enabled but NOT installed (stale references, do not try to reinstall these):"
   say ""
   say '```'
   jq -r --slurpfile i "$INST" '(.enabledPlugins // {}) | to_entries[] | select(.value==true) | .key as $k | select((($i[0].plugins // $i[0]) | has($k)) | not) | $k' "$SET" 2>/dev/null >> "$R"
   say '```'
 fi
-# copy any local plugin payloads wholesale
+# The plugin PAYLOADS are not copied, only measured. They reinstall from the
+# lockfile above, except for local-uploads, which are called out separately.
 if [ -d "$HOME/.claude/plugins" ]; then
-  du -sh "$HOME/.claude/plugins" 2>/dev/null | awk '{print "\n- Plugins dir size: " $1}' >> "$R"
+  du -sh "$HOME/.claude/plugins" 2>/dev/null | awk '{print "\n- Plugins dir size: " $1 " (NOT copied; reinstalled from the list above)"}' >> "$R"
 fi
 say ""
 
@@ -377,13 +613,12 @@ say "Every folder below is a project. **A folder with no remote, or with unpushe
 say ""
 say "| Project | Git? | Remote | Unpushed commits | Uncommitted files |"
 say "|---|---|---|---|---|"
-PROJ_ROOT="${PROJ_ROOT:-$HOME/Documents/Claude Code}"
 if [ -d "$PROJ_ROOT" ]; then
   while IFS= read -r d; do
     [ -d "$d" ] || continue
     name=$(basename "$d")
     if git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-      remote=$(git -C "$d" remote get-url origin 2>/dev/null || echo "**NONE**")
+      remote=$(redact_url "$(git -C "$d" remote get-url origin 2>/dev/null || echo "**NONE**")")
       dirty=$(git -C "$d" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
       br=$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)
       if git -C "$d" rev-parse --abbrev-ref "@{u}" >/dev/null 2>&1; then
@@ -409,9 +644,9 @@ say "|---|---|---|"
 check_path() {
   if [ -e "$1" ]; then
     sz=$(du -sh "$1" 2>/dev/null | awk '{print $1}')
-    say "| \`${1/#$HOME/$TILDE}\` | yes ($sz) | $2 |"
+    say "| \`${1/#"$HOME"/$TILDE}\` | yes ($sz) | $2 |"
   else
-    say "| \`${1/#$HOME/$TILDE}\` | no | $2 |"
+    say "| \`${1/#"$HOME"/$TILDE}\` | no | $2 |"
   fi
 }
 check_path "$HOME/.codex"           "Codex CLI config + auth.json (**secret**)"
@@ -439,20 +674,31 @@ say ""
 say "## 8. .env files across projects (NAMES only, values never printed)"
 say ""
 mkdir -p "$OUT/env-files"
+# The loop below runs in a pipeline, i.e. its own subshell, so it cannot
+# increment FAILURES directly. Failed copies are recorded to a file and
+# folded into the count afterwards.
+ENVFAIL="$OUT/inventory/env-copy-failures.txt"
+: > "$ENVFAIL"
 say '```'
 find "$PROJ_ROOT" -maxdepth 4 -type f -name '.env*' -not -path '*/node_modules/*' -not -name '*.example' 2>/dev/null | while IFS= read -r e; do
-  echo "--- ${e/#$HOME/$TILDE}"
+  echo "--- ${e/#"$HOME"/$TILDE}"
   # names only into the report; handles both `VAR=` and `export VAR=`
   grep -oE '^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=' "$e" 2>/dev/null \
     | sed -E 's/^[[:space:]]*(export[[:space:]]+)?//; s/=$//; s/^/    /'
   # copy the real file, preserving its project path so you know where it goes back
-  rel="${e#$PROJ_ROOT/}"
+  rel="${e#"$PROJ_ROOT"/}"
   dest="$OUT/env-files/$rel"
-  mkdir -p "$(dirname "$dest")" && cp "$e" "$dest"
+  if ! { mkdir -p "$(dirname "$dest")" && cp "$e" "$dest"; } 2>>"$ERRLOG"; then
+    echo "    (NOT COPIED: this file failed to copy)"
+    printf '%s\n' "$rel" >> "$ENVFAIL"
+  fi
 done >> "$R"
 say '```'
 say ""
-say "The real \`.env\` files are copied to \`env-files/\`, keeping their project sub-paths so you know where each one goes back. **These contain live values.**"
+while IFS= read -r rel; do
+  [ -n "$rel" ] && fail ".env file: $rel"
+done < "$ENVFAIL"
+say "The real \`.env\` files are copied to \`env-files/\`, keeping their project sub-paths so you know where each one goes back. **These contain live values**, and are gitignored for you."
 say ""
 say "Separately, commit a \`.env.example\` to each repo (names + where to get each value, never the values)."
 say ""
@@ -460,7 +706,7 @@ say ""
 # ------------------------------------------------------------- 9. cannot move
 say "## 9. Cannot be copied, must be re-authorized on the new machine"
 say ""
-say "- **claude.ai-managed MCP connectors** (Notion, Slack, Linear, Sentry, Vercel, GitHub, Figma, …) live in your claude.ai account, not on disk. They return when you log in to claude.ai and re-authorize under connector settings."
+say "- **claude.ai-managed MCP connectors** (Notion, Slack, Linear, Sentry, Vercel, GitHub, Figma, ...) live in your claude.ai account, not on disk. They return when you log in to claude.ai and re-authorize under connector settings."
 say "- **Claude Code login** itself, re-run \`claude\` and sign in."
 say "- **OAuth-based CLI logins**: \`gh auth login\`, Codex device-code flow, any browser-session tool."
 say "- **Keychain items** do not survive a copy. Re-add from your password manager."
@@ -469,16 +715,41 @@ say ""
 # ------------------------------------------------------------- done
 say "---"
 say ""
+if [ "$FAILURES" -gt 0 ]; then
+  say "## $FAILURES thing(s) FAILED to copy"
+  say ""
+  say "Search this report for **FAILED** to see each one, and read \`inventory/errors.log\`."
+  say "**Do not wipe this machine until every one of them is resolved.**"
+  say ""
+fi
 say "## What to do with this folder"
 say ""
-say "1. Read \`report.md\` top to bottom and fix every ⚠️ before wiping."
+say "**If you are migrating (running this once):**"
+say ""
+say "1. Read this report top to bottom and fix every warning before wiping."
 say "2. Push every project that has a remote; create remotes for the ones that say **NONE**."
 say "3. Move this whole folder to the new machine over an **encrypted** channel (it holds real tokens)."
-say "4. On the new machine, hand \`report.md\` to Claude Code and ask it to rebuild from it."
+say "4. On the new machine, hand this report to Claude Code and ask it to rebuild from it."
+say ""
+say "**If you are using this as a weekly backup:**"
+say ""
+say "1. Re-run it on a schedule. \`CH_YES=1\` skips the prompt, so it works unattended."
+say "2. Add \`CH_SYNC=1\` so files you delete are removed from the copy too, keeping it a mirror."
+say "3. Commit the folder to a **private** repo for history. The \`.gitignore\` written here already"
+say "   excludes the credential-bearing files, but **scan before your first push anyway**: your own"
+say "   rules and memory can contain secrets that no generic scanner will recognise."
+say "4. Check that it actually ran. A backup nobody has restored from is a hypothesis."
 
-printf '\n✅ Capture complete.\n\n   Report:  %s\n   Folder:  %s\n\n' "$R" "$OUT"
-printf '   ⚠️  This folder contains REAL SECRETS (~/.claude.json, .env copies).\n'
-printf '       Move it encrypted. Never git-push it.\n\n'
+if [ "$FAILURES" -gt 0 ]; then
+  printf '\n  %s COPY FAILURE(S). This capture is INCOMPLETE.\n\n' "$FAILURES"
+  printf '   Report:  %s\n   Errors:  %s\n\n' "$R" "$ERRLOG"
+  printf '   Do NOT wipe anything until the report says every failure is resolved.\n\n'
+  exit 1
+fi
+
+printf '\n  Capture complete, no failures.\n\n   Report:  %s\n   Folder:  %s\n\n' "$R" "$OUT"
+printf '   This folder contains REAL SECRETS (~/.claude.json, .env copies).\n'
+printf '   Keep it encrypted. If you commit it for history, the repo must be PRIVATE.\n\n'
 ```
 
 </details>
@@ -525,6 +796,56 @@ The migration folder now contains real credentials. Treat it accordingly.
 | Windows | BitLocker To Go on a USB drive, or a VeraCrypt container |
 
 **Not reasonable:** a git push, email, Slack, a public cloud folder, or a USB stick you then lend to someone.
+
+---
+
+### 2.5 Using this weekly instead of once
+
+Everything above is written for the hour before a wipe. The same script run every week is a backup, so if that hour ever comes you already have last week's copy.
+
+**Re-running is safe.** The report is rewritten from scratch each run and the copies are updated in place, so a second run does not leave you a second copy of anything.
+
+Three things change when you move from once to weekly.
+
+**1. Turn on mirror mode, or the folder fills up with things you deleted on purpose.**
+
+```bash
+CH_SYNC=1 CH_YES=1 bash capture-harness.sh
+```
+
+By default the script only ever adds and overwrites. That is the right default for a one-time rescue, where deleting nothing is the safest thing a script can do. But run it weekly for a year without `CH_SYNC=1` and every rule, agent, and skill you have ever deleted on purpose is still sitting in the folder. You end up restoring from an archive of your own mistakes.
+
+`CH_SYNC=1` makes the copy a mirror: delete a rule from `~/.claude` and it goes from the folder too. It is off by default because it is the only part of the script that can delete anything. It refuses to run at all if the output folder is your home directory, an ancestor of it, or `/`.
+
+`CH_YES=1` skips the confirmation prompt, which you need for anything unattended.
+
+**2. Commit it to a private repo, or all you ever have is this morning's version.**
+
+A folder that overwrites itself every week tells you what your setup looked like this morning and nothing else. The value of a weekly backup is answering "what did this look like before I broke it," and that needs git.
+
+```bash
+cd ~/claude-harness-backup
+git init && git add -A && git commit -m "backup"
+gh repo create my-harness-backup --private --source=. --push
+```
+
+The script writes a `.gitignore` into the folder before anything can be committed, excluding `config/claude.json.SECRET`, `env-files/`, and `settings.json`. That ordering is the whole point: adding an ignore rule after a first `git add -A` is too late, because git history does not forget a credential you committed once.
+
+> **Read that `.gitignore` before your first push, and scan the folder yourself.** The ignore list covers the files that are secret *by design*. It cannot cover a token you once pasted into a rule, or an API key sitting in a memory file from six months ago. Run the scan in [Part 6.4](#64-before-the-first-push-of-any-new-repo) against the folder before the first push, and keep the repo **private** regardless of what the scan says.
+>
+> This guide deliberately does not make the script scan for you. A scanner that returns a false clean is worse than no scanner, because a green result stops people looking. Deciding your own backup is clean is a judgement call, and it should stay yours.
+
+**3. Check that it actually ran.**
+
+Schedule it however you already schedule things, `cron`, a systemd timer, a launchd agent, or a reminder you actually honour. Then confirm the folder's date changes. The exit code is meaningful: `0` means everything it tried to copy, it copied; `1` means at least one copy failed and the report says which; `2` means it refused to start.
+
+```bash
+# a crude but honest weekly check
+find ~/claude-harness-backup/report.md -mtime +8 \
+  && echo "BACKUP IS STALE, it has not run in over a week"
+```
+
+Once a year, restore it into a throwaway location and check that it actually stands your setup back up. Part 10 has more on this.
 
 ---
 
@@ -1235,6 +1556,10 @@ The file layout is the easy part and it will change. These are why the layout is
 
 A migration you do once will be needed again. Make it repeatable.
 
+**Start with the cheap version.** If you want a weekly backup today, you do not need any of the machinery below: schedule the Part 2 script with `CH_SYNC=1` and commit its output to a private repo. That is [Part 2.5](#25-using-this-weekly-instead-of-once), it takes about ten minutes, and for most people it is where this ends.
+
+The rest of this section is what you build when the cheap version is no longer enough, which usually means you are backing up several machines or several people, or you want the restore itself to be verifiable rather than hopeful.
+
 **The design that works:**
 
 - **An explicit allowlist, never auto-discovery.** List the paths that get backed up. Blind discovery sweeps up caches, transcripts, and gigabytes of dependencies, and eventually a secret.
@@ -1250,7 +1575,7 @@ A migration you do once will be needed again. Make it repeatable.
   ```
   A restore procedure nobody has ever executed is a hypothesis.
 
-Then schedule it, weekly is plenty, and confirm it actually ran. A backup you have never restored from is not a backup.
+Then schedule it, weekly is plenty, and confirm it actually ran.
 
 ---
 
