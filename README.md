@@ -1,36 +1,48 @@
-# Claude Code Harness Backup: move your whole Claude Code setup to a new laptop without losing the parts you wrote
+<div align="center">
 
-Claude Code is Anthropic's AI coding assistant. It runs in your terminal, reads the files in your project, and can change them for you. Out of the box it knows nothing about how you work, so you teach it, and what you teach it piles up in a folder called `~/.claude/`, which is where it keeps everything on your machine. I call that pile your **harness**, and it's made of five kinds of thing:
+# 📦 Claude Code Harness Backup: move your whole Claude Code setup to a new laptop without losing the parts you wrote
 
-- **Rules**: standing instructions it loads into every session.
-- **Skills**: playbooks it follows when a matching task comes up.
-- **Subagents**: separate assistants with one job each, that the main one hands work to. They live in a folder called `agents/`, so you'll see both words for the same thing.
-- **Commands**: shortcuts you type to start something you do often.
-- **Hooks**: small scripts that run automatically at a fixed moment, so they can block an action instead of politely asking you not to take it.
+### Reinstalling Claude Code takes two minutes. The corrections you taught it don't come back, because you were the only copy.
 
-Nearly all of that exists only because you wrote it, and it's sitting on exactly one laptop. This repo is a guide and a script for moving it to a new machine, and for rebuilding it if you never backed it up.
+![requires](https://img.shields.io/badge/requires-Claude%20Code-D97757) ![your setup](https://img.shields.io/badge/your%20setup-never%20modified-0E9384) ![output folder](https://img.shields.io/badge/output%20folder-holds%20real%20secrets-B42318) ![license](https://img.shields.io/badge/license-MIT-green) ![CI](https://github.com/aksheyw/claude-code-harness-backup/actions/workflows/ci.yml/badge.svg)
 
-> Reinstalling Claude Code takes two minutes. The corrections you taught it don't come back, because you were the only copy.
+</div>
 
-I ran the script against my own setup and it pulled across 27 rules, 304 skills, 93 subagents, 114 commands and 58 hook scripts, and the report it wrote had zero secrets in it.
+---
 
-## Why I built this
+Claude Code is Anthropic's AI coding assistant. It runs in your terminal, reads the files in your project, and can change them for you. Out of the box it knows nothing about how you work, so you teach it, and what you teach it piles up in a folder called `~/.claude/` on one laptop. I call that pile your **harness**. This repo is a guide and a script for moving it to a new machine, and for rebuilding it if you never backed it up.
 
-All my projects are on GitHub, so I assumed I was covered. Then I thought properly about losing the laptop, and the projects turned out to be the one part that was fine. What had no backup anywhere was the harness itself: the rules I had corrected into place over months, the skills, the subagents, the hooks. Everything that makes Claude Code work the way I work instead of the way it ships.
+![What a reinstall gives you back, and what it doesn't. You can get this back, though each one takes a manual step: Claude Code itself in about two minutes, plugins installed from a marketplace, which reinstall from the list in the report, though locally uploaded ones do not, and any project you have already pushed, with the report flagging the ones you have not. Doesn't come back, because you wrote it: 27 rules, standing instructions loaded into every session; 304 skills, playbooks it follows when a task matches; 93 subagents, separate assistants with one job each, in a folder called agents; 114 commands, shortcuts you type to start something you do often; and 58 hook scripts, which fire automatically and can block an action. Those counts are from one real run on my own machine. Nothing on the right reinstalls, it exists because you taught it, on exactly one laptop, and this repo copies that side to a folder you can move and tells you what it could not save.](docs/what-a-reinstall-gives-back.svg)
 
-That's the part you can't reinstall. A new machine gives you a new Claude Code that knows nothing about you, and you teach it all of it again from scratch. I didn't want to spend a week of evenings rediscovering corrections I'd already made once.
+## What you'd lose, and why it isn't your code
+
+All my projects are on GitHub, so I assumed I was covered. When I actually thought about losing the laptop, the projects turned out to be the one part that was fine. What had no backup anywhere was the harness itself, the parts I had written: everything that makes Claude Code work the way I work instead of the way it ships. A new machine gives you one that knows nothing about you, and you teach all of it again from scratch.
+
+## Why I built this, and why the secrets were the harder half
+
+I didn't want to spend a week of evenings rediscovering corrections I had already made once.
 
 So I built it, and the secrets turned out to be the harder half. Reviewing the design before writing any code turned up six ways a plain `cp -r` would have leaked a credential, including a skill that was quietly holding a live browser session. Then the first real run refused to continue: the secret scan found seven live credentials sitting in my own memory files, in a folder I had gone through by hand the day before and passed as clean.
 
 That's why this repo spends as much time on secrets as on copying. Backing up a harness means backing up the folder you've been most casual about pasting things into, and the naive version of this tool is a credential leak with a friendly name.
 
-## What's in this repo
+## What it copies, and what that means for your secrets
 
-| Path | What it is |
-|---|---|
-| [`GUIDE.md`](GUIDE.md) | The full guide. Capture, rebuild, a configuration reference I checked against the current docs, the secrets protocol, and the reasoning behind the design |
-| [`scripts/capture-harness.sh`](scripts/capture-harness.sh) | The script. Reads your setup and writes a report of what's about to be lost. Run it once before a wipe, or weekly as a backup |
-| [`templates/`](templates/) | Copy-paste starting points: an example environment file, a secrets inventory, a per-project instructions file, a baseline ignore file, and a project wiki schema |
+The script reads your setup and copies part of it into one folder, `~/claude-harness-backup/`, which is the thing you carry to the new machine. It never edits or deletes anything in `~/.claude/`, and it never pushes anywhere.
+
+That output folder is the part to be careful with.
+
+- **It holds real credentials, in plain text.** At minimum your `~/.claude.json`, which can hold access tokens for the other tools you've connected, and every `.env` file it finds under your projects folder. Your settings, rules and memory files come across too, and a memory file is exactly where a pasted token ends up, which is where the seven above were sitting. This script doesn't hunt for those, so checking is still on you. All of it is deliberate, because the alternative is a migration that loses them.
+- **It warns you and pauses for Enter** before it copies anything, as long as you're running it in a terminal. `CH_YES=1` skips that pause so it can run on a schedule, and so does a run with nothing on its input at all, which is what cron gives it.
+- **The readable report has names and locations in it, never a value.** This repo's tests plant fake credentials in a synthetic setup, run the real script against it, and fail if any of those values turn up in the report, or if it stops naming the variables they came from.
+- **Move the folder over an encrypted channel**, then delete it from the old machine, but not until the new one actually works. [Part 8](GUIDE.md#part-8-the-acceptance-test) is the check for that. I have done every piece of the restore, just never the whole sequence in one go on a machine that wasn't mine, so keep the old copy until you have.
+- **Only put it in a git repo if that repo is private.** The script writes a `.gitignore` into the folder before anything can be committed, which is the ordering that matters. Read that list before your first push, because it covers what's secret by design, not a token you once pasted into a rule.
+
+I ran this against my own setup, and the report it wrote had zero secrets in it.
+
+The guide's [secrets protocol](GUIDE.md#part-6-secrets-the-part-that-goes-wrong) covers the wider problem, and the part that matters most is that git history is append-only, so a secret has to be kept out of the first commit. Taking it out later doesn't help.
+
+Found a security problem in this repo? Use [SECURITY.md](SECURITY.md), not a public issue.
 
 ## Start here
 
@@ -43,7 +55,13 @@ git clone https://github.com/aksheyw/claude-code-harness-backup.git
 bash claude-code-harness-backup/scripts/capture-harness.sh
 ```
 
-It doesn't touch your setup. The only thing it writes is its own output folder, and it never edits or deletes anything in `~/.claude/`, and never pushes anywhere. It tells you what to fix before you wipe. Then read [Part 2 of the guide](GUIDE.md#part-2-capture-the-old-machine).
+It leaves your setup alone. The one thing it writes is `~/claude-harness-backup/`, and that folder will hold your credentials in plain text. That's deliberate, because the alternative is losing them in the move. The script says so on screen and, in a terminal, waits for you to press Enter before it copies anything, and the report it writes tells you what to fix before you wipe. Then run the checks below, and read [Part 2 of the guide](GUIDE.md#part-2-capture-the-old-machine).
+
+It looks for your projects in `~/Documents/Claude Code`. If you keep them somewhere else, say so, or it will find none of them and none of their `.env` files:
+
+```bash
+PROJ_ROOT="$HOME/code" bash claude-code-harness-backup/scripts/capture-harness.sh
+```
 
 **The old machine is already gone.** Start at [Part 3](GUIDE.md#part-3-rebuild-on-the-new-machine) and work from whatever backup you've got. Some of it you won't get back, and the guide says which parts instead of pretending there's a trick.
 
@@ -55,13 +73,15 @@ It doesn't touch your setup. The only thing it writes is its own output folder, 
 CH_SYNC=1 CH_YES=1 bash claude-code-harness-backup/scripts/capture-harness.sh
 ```
 
-`CH_SYNC=1` mirrors deletions, so a rule you delete from `~/.claude` goes from the backup too. `CH_YES=1` skips the prompt so it can run unattended. Then commit the output folder to a **private** repo for history. The script writes a `.gitignore` excluding the credential-bearing files before anything can be committed. [Part 2.5](GUIDE.md#25-using-this-weekly-instead-of-once) covers the scanning you should still do yourself.
+`CH_SYNC=1` mirrors deletions, so a rule you delete from `~/.claude` goes from the backup too. It needs `rsync` installed and refuses to start without it, rather than quietly making a copy that isn't a mirror. `CH_YES=1` skips the confirmation, which is what lets it run unattended, so read that warning once yourself before you schedule it. Then commit the output folder to a **private** repo for history. [Part 2.5](GUIDE.md#25-using-this-weekly-instead-of-once) covers the scanning you should still do yourself.
 
 **You want your AI assistant to do this for you.** Hand it `GUIDE.md` and say so. It opens with a brief written for exactly that, which tells the assistant what to do first, what to leave alone, and what to verify before it tells you it's finished.
 
-## Verify it worked
+## Did it work?
 
-Three things should be true after the script runs.
+Start with the one that matters most. If anything failed to copy, the script tells you: it exits with an error and writes **FAILED** into the report beside whatever it couldn't take. Search the report for that word, and don't wipe the old machine until every one of them is resolved. If it refuses to start at all, which mirror mode does on an unsafe output folder, it leaves the previous report sitting there untouched, so check the date at the top is from this run before you trust it.
+
+Then three things should be true: there is a report, the folders nobody can regenerate actually came across, and no secret values leaked into the readable report. The second check names two folders the picture above doesn't: `scripts/`, the helper scripts your setup calls, and `memory/`, the notes Claude Code keeps for itself. Both get carried across.
 
 ```bash
 # 1. There's a report and it isn't empty
@@ -69,7 +89,7 @@ wc -l ~/claude-harness-backup/report.md
 
 # 2. The parts nobody can regenerate actually came across.
 #    Note: subagents live in a folder called `agents`.
-for d in rules skills agents commands scripts hooks memory; do
+for d in rules skills agents commands scripts hooks memory scheduled-tasks; do
   printf '%-10s %s files\n' "$d" "$(find -L ~/claude-harness-backup/claude/$d -type f 2>/dev/null | wc -l)"
 done
 
@@ -77,9 +97,10 @@ done
 grep -cE 'sk-[A-Za-z0-9]{30,}|gh[pousr]_[A-Za-z0-9]{30,}|AIza[0-9A-Za-z_-]{30,}' ~/claude-harness-backup/report.md
 ```
 
-That last one has to print `0`. Your real secrets do get copied into the folder, on purpose, so the migration doesn't lose them. They're kept out of the readable report, so you can paste that report into an issue without leaking anything.
+That last one has to print `0`. Your real secrets do get copied into the folder, on purpose, so the migration doesn't lose them, and they're kept out of the readable report so that report is the part you can share. The redaction works on shapes it recognises though, so something like `--token abc123` still reads as an ordinary word, which is why the report tells you to read its hook-commands block before you paste it anywhere. The rest of the report is safe for a different reason: it only ever prints names and paths, never values.
 
-## What it looks like running
+<details>
+<summary>📄 <b>What the report looks like on a real run</b>, and the rows worth arguing with</summary>
 
 This is the first table from a real run on my machine, with only the symlink target shortened:
 
@@ -97,11 +118,11 @@ This is the first table from a real run on my machine, with only the symlink tar
 | scheduled-tasks | `~/.claude/scheduled-tasks` | 16 files | yes, see the copy list below |
 ```
 
-A few things worth reading off that. `skills` is a symlink pointing outside `~/.claude/`, which a naive copy would preserve as a dead link on the new machine, so the script follows it. `plugins` is 39,873 files and is the one row marked **no**, because plugins reinstall from a marketplace and carrying them would make the output enormous for no gain. And that column says what the script *tries* to copy, not what it managed to copy: the outcome is the copy list underneath, plus any line marked FAILED. Those are separate on purpose, because a table that reported success before the copy ran would be the most dangerous thing in the report.
+A few things worth reading off that. The counts here are **files**, which is why they don't match the picture at the top of the page: 2,142 files is what those 304 skills are made of, one folder each. `skills` is also a symlink pointing outside `~/.claude/`, which a naive copy would preserve as a dead link on the new machine, so the script follows it. `plugins` is 39,873 files and is the one row marked **no**, because plugins reinstall from a marketplace and carrying them would make the output enormous for no gain. And that column says what the script *tries* to copy, not what it managed to copy: the outcome is the copy list underneath, plus any line marked FAILED. Those are separate on purpose, because a table that reported success before the copy ran would be the most dangerous thing in the report.
 
 The `hooks` count is 1 because on this machine the hook scripts themselves live under `scripts/`, and `hooks/` holds a single config file. Yours may be arranged differently.
 
-Then it checks your projects. That is a second safety net rather than the main event, since most people's code is already on a remote, but the report tells you where that assumption is wrong:
+Then it checks your projects. That's a second safety net rather than the main event, since most people's code is already on a remote, but the report tells you where that assumption is wrong:
 
 ```
 | Project        | Git?        | Remote                          | Unpushed        | Uncommitted |
@@ -114,6 +135,8 @@ Then it checks your projects. That is a second safety net rather than the main e
 
 That one is illustrative, not a real run. Three of those four rows are a problem. `design-notes` has no version history at all, `mobile-app` has 6 commits and 9 changed files that exist nowhere else, and `scratch` has history but nowhere to push it. Only the first row is safe.
 
+</details>
+
 ## When to use this, and when not to
 
 **Use it if** you're changing machines, or you've built up a real amount of custom setup, or you want a backup you can actually repeat instead of hoping a cloud sync picked the folder up.
@@ -122,20 +145,8 @@ That one is illustrative, not a real run. Three of those four rows are a problem
 
 **It won't keep two machines in step.** It copies one machine's setup into a folder, and it doesn't run in the background, so scheduling it is something you set up yourself. [Part 2.5](GUIDE.md#25-using-this-weekly-instead-of-once) is the ten-minute version of that.
 
-## Security: what this touches
-
-The script reads your config and copies some of it, including files with live credentials in them. That's deliberate, because the alternative is losing them, but it means you have to handle the output carefully.
-
-- It warns you before it copies anything, and waits for you to confirm.
-- The readable report has names and locations in it, never a value.
-- The output folder itself does contain real credentials, in plain text. Move it over an encrypted channel, then delete it from the old machine.
-- Only put that folder in a git repo if the repo is **private**, and read the `.gitignore` the script writes before your first push. That ignore list covers what's secret by design, not a token you once pasted into a rule.
-
-The guide's [secrets protocol](GUIDE.md#part-6-secrets-the-part-that-goes-wrong) covers the wider problem, and the part that matters most is that git history is append-only, so a secret has to be kept out of the first commit. Taking it out later doesn't help.
-
-Found a security problem in this repo? Use [SECURITY.md](SECURITY.md), not a public issue.
-
-## Troubleshooting
+<details>
+<summary>🔧 <b>Troubleshooting</b>: an empty project table, a missing <code>jq</code>, every session erroring after you restore, Windows</summary>
 
 **The project table is empty, or it says no folder found.** The script looks in `~/Documents/Claude Code` by default. Point it wherever you actually keep projects:
 
@@ -151,9 +162,22 @@ PROJ_ROOT="$HOME/code" bash scripts/capture-harness.sh
 
 **You're on Windows.** Use WSL or Git Bash, which are both ways of getting a Linux-style terminal on Windows. Native PowerShell and `cmd` won't work.
 
+</details>
+
+<details>
+<summary>📋 <b>What's in this repo</b>: the guide, the script, and five copy-paste templates</summary>
+
+| Path | What it is |
+|---|---|
+| [`GUIDE.md`](GUIDE.md) | The full guide. Capture, rebuild, a configuration reference I checked against the current docs, the secrets protocol, and the reasoning behind the design |
+| [`scripts/capture-harness.sh`](scripts/capture-harness.sh) | The script. Reads your setup and writes a report of what's about to be lost |
+| [`templates/`](templates/) | Copy-paste starting points: an example environment file, a secrets inventory, a per-project instructions file, a baseline ignore file, and a project wiki schema |
+
+</details>
+
 ## Companion repos
 
-This sits in a family of Claude Code tooling I keep, and the guide's five layers each have a repo of their own:
+This sits in a family of Claude Code tooling I keep. Each of these publishes a few of my own rules, skills, subagents or hooks as a starting point, which is why the counts below are so much smaller than the ones in the picture at the top:
 
 - [claude-code-rules](https://github.com/aksheyw/claude-code-rules): the rules layer. Opinionated global rules covering honesty and earned confidence, TDD, immutability, and branch strategy.
 - [claude-code-learned-skills](https://github.com/aksheyw/claude-code-learned-skills): the skills layer. 12 skills pulled out of real debugging and research sessions.
@@ -167,7 +191,7 @@ If you're rebuilding a machine from scratch, those are a faster starting point t
 
 ## Credits
 
-A few things I took from other people. Keeping a secret out of the first commit rather than scrubbing it later is standard practice, and [gitleaks](https://github.com/gitleaks/gitleaks) is what the guide points you at for the actual scanning, because it does that far better than the grep patterns I'd have written. The idea of a project wiki that compounds across sessions instead of being rewritten each time comes from [Andrej Karpathy's LLM wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f).
+Keeping a secret out of the first commit rather than scrubbing it later is standard practice, and [gitleaks](https://github.com/gitleaks/gitleaks) is what the guide points you at for the actual scanning, because it does that far better than the grep patterns I'd have written. The idea of a project wiki that compounds across sessions instead of being rewritten each time comes from [Andrej Karpathy's LLM wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f).
 
 ## License
 
