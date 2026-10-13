@@ -185,7 +185,6 @@ This sits in a family of Claude Code tooling I keep. Each of these publishes a f
 - [claude-code-guardrail-hooks](https://github.com/aksheyw/claude-code-guardrail-hooks): the hooks layer. Four hooks that block or capture a mistake at the tool-call boundary, including the secret scan this guide leans on.
 - [context-bridge](https://github.com/aksheyw/context-bridge): the per-project layer. A small project wiki plus a generated handoff prompt, so a session picks up warm instead of cold.
 - [claude-code-ship-gate](https://github.com/aksheyw/claude-code-ship-gate): the gate that stops an un-reviewed push reaching your protected branch.
-- [awesome-claude-code-toolkit](https://github.com/aksheyw/awesome-claude-code-toolkit): the wider toolkit these sit in.
 
 If you're rebuilding a machine from scratch, those are a faster starting point than an empty `~/.claude/`.
 
