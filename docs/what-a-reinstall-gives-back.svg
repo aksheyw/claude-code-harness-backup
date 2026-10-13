@@ -25,8 +25,7 @@
 
     <g>
       <rect x="32" y="264" width="452" height="64" rx="8" fill="#F5F6F7" stroke="#B9BEC6" stroke-width="1"/>
-      <text x="50" y="290" font-size="16" font-weight="700" fill="#5B6169">Your projects, if they are pushed</text>
-      <text x="50" y="312" font-size="13" fill="#8A8F98">The report flags the ones that are not</text>
+      <text x="50" y="302" font-size="16" font-weight="700" fill="#5B6169">Your projects, if they are pushed</text>
     </g>
 
     <!-- RIGHT: the authored harness -->

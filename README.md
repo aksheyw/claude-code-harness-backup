@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📦 Claude Code Harness Backup: move your whole Claude Code setup to a new laptop without losing the parts you wrote
+# 📦 Claude Code Harness Backup: move your Claude Code setup to a new laptop without losing the parts you wrote
 
 ### Reinstalling Claude Code takes two minutes. The corrections you taught it don't come back, because you were the only copy.
 
@@ -12,7 +12,7 @@
 
 Claude Code is Anthropic's AI coding assistant. It runs in your terminal, reads the files in your project, and can change them for you. Out of the box it knows nothing about how you work, so you teach it, and what you teach it piles up in a folder called `~/.claude/` on one laptop. I call that pile your **harness**. This repo is a guide and a script for moving it to a new machine, and for rebuilding it if you never backed it up.
 
-![What a reinstall gives you back, and what it doesn't. You can get this back, though each one takes a manual step: Claude Code itself in about two minutes, plugins installed from a marketplace, which reinstall from the list in the report, though locally uploaded ones do not, and any project you have already pushed, with the report flagging the ones you have not. Doesn't come back, because you wrote it: 27 rules, standing instructions loaded into every session; 304 skills, playbooks it follows when a task matches; 93 subagents, separate assistants with one job each, in a folder called agents; 114 commands, shortcuts you type to start something you do often; and 58 hook scripts, which fire automatically and can block an action. Those counts are from one real run on my own machine. Nothing on the right reinstalls, it exists because you taught it, on exactly one laptop, and this repo copies that side to a folder you can move and tells you what it could not save.](docs/what-a-reinstall-gives-back.svg)
+![What a reinstall gives you back, and what it doesn't. You can get this back, though each one takes a manual step: Claude Code itself in about two minutes, plugins installed from a marketplace, which reinstall from the list in the report, though locally uploaded ones do not, and any project you have already pushed. Doesn't come back, because you wrote it: 27 rules, standing instructions loaded into every session; 304 skills, playbooks it follows when a task matches; 93 subagents, separate assistants with one job each, in a folder called agents; 114 commands, shortcuts you type to start something you do often; and 58 hook scripts, which fire automatically and can block an action. Those counts are from one real run on my own machine. Nothing on the right reinstalls, it exists because you taught it, on exactly one laptop, and this repo copies that side to a folder you can move and tells you what it could not save.](docs/what-a-reinstall-gives-back.svg)
 
 ## What you'd lose, and why it isn't your code
 
@@ -34,7 +34,7 @@ That output folder is the part to be careful with.
 
 - **It holds real credentials, in plain text.** At minimum your `~/.claude.json`, which can hold access tokens for the other tools you've connected, and every `.env` file it finds under your projects folder. Your settings, rules and memory files come across too, and a memory file is exactly where a pasted token ends up, which is where the seven above were sitting. This script doesn't hunt for those, so checking is still on you. All of it is deliberate, because the alternative is a migration that loses them.
 - **It warns you and pauses for Enter** before it copies anything, as long as you're running it in a terminal. `CH_YES=1` skips that pause so it can run on a schedule, and so does a run with nothing on its input at all, which is what cron gives it.
-- **The readable report has names and locations in it, never a value.** This repo's tests plant fake credentials in a synthetic setup, run the real script against it, and fail if any of those values turn up in the report, or if it stops naming the variables they came from.
+- **The readable report is built to hold names and locations, never a value.** This repo's tests plant fake credentials in a synthetic setup, run the real script against it, and fail if any of those values turn up in the report.
 - **Move the folder over an encrypted channel**, then delete it from the old machine, but not until the new one actually works. [Part 8](GUIDE.md#part-8-the-acceptance-test) is the check for that. I have done every piece of the restore, just never the whole sequence in one go on a machine that wasn't mine, so keep the old copy until you have.
 - **Only put it in a git repo if that repo is private.** The script writes a `.gitignore` into the folder before anything can be committed, which is the ordering that matters. Read that list before your first push, because it covers what's secret by design, not a token you once pasted into a rule.
 
@@ -73,7 +73,7 @@ PROJ_ROOT="$HOME/code" bash claude-code-harness-backup/scripts/capture-harness.s
 CH_SYNC=1 CH_YES=1 bash claude-code-harness-backup/scripts/capture-harness.sh
 ```
 
-`CH_SYNC=1` mirrors deletions, so a rule you delete from `~/.claude` goes from the backup too. It needs `rsync` installed and refuses to start without it, rather than quietly making a copy that isn't a mirror. `CH_YES=1` skips the confirmation, which is what lets it run unattended, so read that warning once yourself before you schedule it. Then commit the output folder to a **private** repo for history. [Part 2.5](GUIDE.md#25-using-this-weekly-instead-of-once) covers the scanning you should still do yourself.
+`CH_SYNC=1` mirrors deletions in the `~/.claude` folders it copies, so a rule you delete there goes from the backup too. It needs `rsync` installed and refuses to start without it, rather than quietly making a copy that isn't a mirror. `CH_YES=1` skips the confirmation, which is what lets it run unattended, so read that warning once yourself before you schedule it. Then commit the output folder to a **private** repo for history. [Part 2.5](GUIDE.md#25-using-this-weekly-instead-of-once) covers the scanning you should still do yourself.
 
 **You want your AI assistant to do this for you.** Hand it `GUIDE.md` and say so. It opens with a brief written for exactly that, which tells the assistant what to do first, what to leave alone, and what to verify before it tells you it's finished.
 
@@ -93,11 +93,11 @@ for d in rules skills agents commands scripts hooks memory scheduled-tasks; do
   printf '%-10s %s files\n' "$d" "$(find -L ~/claude-harness-backup/claude/$d -type f 2>/dev/null | wc -l)"
 done
 
-# 3. The report itself has no secrets in it, only names and locations
+# 3. The report has none of these key shapes in it
 grep -cE 'sk-[A-Za-z0-9]{30,}|gh[pousr]_[A-Za-z0-9]{30,}|AIza[0-9A-Za-z_-]{30,}' ~/claude-harness-backup/report.md
 ```
 
-That last one has to print `0`. Your real secrets do get copied into the folder, on purpose, so the migration doesn't lose them, and they're kept out of the readable report so that report is the part you can share. The redaction works on shapes it recognises though, so something like `--token abc123` still reads as an ordinary word, which is why the report tells you to read its hook-commands block before you paste it anywhere. The rest of the report is safe for a different reason: it only ever prints names and paths, never values.
+That last one has to print `0`. Your real secrets do get copied into the folder, on purpose, so the migration doesn't lose them, and they're kept out of the readable report so that report is the part you can share. The redaction works on shapes it recognises though, so something like `--token abc123` still reads as an ordinary word, which is why the report tells you to read its hook-commands block before you paste it anywhere.
 
 <details>
 <summary>📄 <b>What the report looks like on a real run</b>, and the rows worth arguing with</summary>
@@ -122,7 +122,7 @@ A few things worth reading off that. The counts here are **files**, which is why
 
 The `hooks` count is 1 because on this machine the hook scripts themselves live under `scripts/`, and `hooks/` holds a single config file. Yours may be arranged differently.
 
-Then it checks your projects. That's a second safety net rather than the main event, since most people's code is already on a remote, but the report tells you where that assumption is wrong:
+Then it checks your projects. That's a second safety net rather than the main event, since most people's code is already on a remote:
 
 ```
 | Project        | Git?        | Remote                          | Unpushed        | Uncommitted |
@@ -133,7 +133,7 @@ Then it checks your projects. That's a second safety net rather than the main ev
 | scratch        | yes (main)  | **NONE**                        | **no upstream** | 3           |
 ```
 
-That one is illustrative, not a real run. Three of those four rows are a problem. `design-notes` has no version history at all, `mobile-app` has 6 commits and 9 changed files that exist nowhere else, and `scratch` has history but nowhere to push it. Only the first row is safe.
+That one is illustrative, not a real run. Three of those four rows are a problem. `design-notes` has no version history at all, `mobile-app` has 6 unpushed commits and 9 changed files, and `scratch` has history but no `origin` remote.
 
 </details>
 
@@ -154,7 +154,7 @@ That one is illustrative, not a real run. Three of those four rows are a problem
 PROJ_ROOT="$HOME/code" bash scripts/capture-harness.sh
 ```
 
-**It says `command not found: jq`.** `jq` is a small command-line tool for reading JSON, which is the format Claude Code stores its config in. The script still runs without it, but it can't read your settings, so most of the report goes missing. `brew install jq` on macOS, `apt install jq` on Debian and Ubuntu, then run it again.
+**It says `command not found: jq`.** `jq` is a small command-line tool for reading JSON, which is the format Claude Code stores its config in. The script still runs without it, but it can't read your settings. `brew install jq` on macOS, `apt install jq` on Debian and Ubuntu, then run it again.
 
 **Every session errors after you restore on the new machine.** Almost always the hooks. Your settings file records where each hook script lives as a full path with your old username in it, and that path doesn't exist on the new machine, so every session fails trying to run them. [Part 3.2](GUIDE.md#32-restore-the-identity) has the fix, and the bit people get wrong is that you rewrite the paths *before* you copy the settings file into place, not after.
 
@@ -169,8 +169,8 @@ PROJ_ROOT="$HOME/code" bash scripts/capture-harness.sh
 
 | Path | What it is |
 |---|---|
-| [`GUIDE.md`](GUIDE.md) | The full guide. Capture, rebuild, a configuration reference I checked against the current docs, the secrets protocol, and the reasoning behind the design |
-| [`scripts/capture-harness.sh`](scripts/capture-harness.sh) | The script. Reads your setup and writes a report of what's about to be lost |
+| [`GUIDE.md`](GUIDE.md) | The full guide. Capture, rebuild, a configuration reference I checked against the docs, the secrets protocol, and the reasoning behind the design |
+| [`scripts/capture-harness.sh`](scripts/capture-harness.sh) | The script. Reads your setup, copies part of it into one folder, and writes a report of what's about to be lost |
 | [`templates/`](templates/) | Copy-paste starting points: an example environment file, a secrets inventory, a per-project instructions file, a baseline ignore file, and a project wiki schema |
 
 </details>
